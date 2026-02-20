@@ -15,8 +15,10 @@ can be expressed as the sum of two primes (Goldbach's conjecture).
 |-------|----------|----------|---------|
 | 10^6  | 25ms     | 0.91ms   | 27x     |
 | 10^8  | 3,819ms  | 25ms     | 153x    |
+| 10^9  | 42,936ms | 206ms    | 208x    |
 
-Expectedly, no counterexamples found up to 10^8 :)
+No counterexamples found up to 10^9 (1,000,000,000), as expected :)
+GPU speedup grows with scale — 208x at 10^9 on RTX 3070.
 
 ## Build
 ```bash
