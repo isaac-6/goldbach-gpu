@@ -22,3 +22,8 @@ target_link_libraries(test_sieve PRIVATE sieve_lib)
 add_executable(goldbach_gpu src/goldbach_gpu.cu)
 target_link_libraries(goldbach_gpu PRIVATE sieve_lib)
 set_property(TARGET goldbach_gpu PROPERTY CUDA_ARCHITECTURES native)
+
+# Single number Goldbach checker with Miller-Rabin
+add_executable(single_check src/single_check.cu)
+target_link_libraries(single_check PRIVATE sieve_lib)
+set_property(TARGET single_check PROPERTY CUDA_ARCHITECTURES native)
