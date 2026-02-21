@@ -2,7 +2,7 @@
 
 ## Hardware
 
-- **CPU:** AMD/Intel, 20 threads (WSL2, Ubuntu 24)
+- **CPU:** Intel, i7-12700H, 20 threads (WSL2, Ubuntu 24)
 - **GPU:** NVIDIA RTX 3070 (8 GB VRAM)
 - **RAM:** 32 GB
 
@@ -138,4 +138,3 @@ range verification.
 - [ ] Segmented bitset (removes VRAM ceiling, target: 10^12+)
 - [ ] Count partitions c(n) at scale
 - [ ] Cloud GPU run (A100, target: push range frontier)
-- [ ] Write-up for arXiv or JOSS
