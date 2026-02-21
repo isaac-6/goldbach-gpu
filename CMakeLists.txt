@@ -1,5 +1,6 @@
 cmake_minimum_required(VERSION 3.18)
 project(goldbach-gpu LANGUAGES CXX CUDA)
+find_package(OpenMP REQUIRED)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CUDA_STANDARD 17)
@@ -31,6 +32,7 @@ set_property(TARGET single_check PROPERTY CUDA_ARCHITECTURES native)
 # Bitset library
 add_library(bitset_lib STATIC src/prime_bitset.cpp)
 target_include_directories(bitset_lib PUBLIC src)
+target_link_libraries(bitset_lib PUBLIC OpenMP::OpenMP_CXX)
 
 # Bitset test
 add_executable(test_bitset src/test_bitset.cpp)
