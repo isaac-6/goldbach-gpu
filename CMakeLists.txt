@@ -27,3 +27,11 @@ set_property(TARGET goldbach_gpu PROPERTY CUDA_ARCHITECTURES native)
 add_executable(single_check src/single_check.cu)
 target_link_libraries(single_check PRIVATE sieve_lib)
 set_property(TARGET single_check PROPERTY CUDA_ARCHITECTURES native)
+
+# Bitset library
+add_library(bitset_lib STATIC src/prime_bitset.cpp)
+target_include_directories(bitset_lib PUBLIC src)
+
+# Bitset test
+add_executable(test_bitset src/test_bitset.cpp)
+target_link_libraries(test_bitset PRIVATE bitset_lib)
