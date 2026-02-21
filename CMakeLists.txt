@@ -35,3 +35,8 @@ target_include_directories(bitset_lib PUBLIC src)
 # Bitset test
 add_executable(test_bitset src/test_bitset.cpp)
 target_link_libraries(test_bitset PRIVATE bitset_lib)
+
+# GPU Goldbach verifier v2 (bitset)
+add_executable(goldbach_gpu2 src/goldbach_gpu2.cu)
+target_link_libraries(goldbach_gpu2 PRIVATE bitset_lib)
+set_property(TARGET goldbach_gpu2 PROPERTY CUDA_ARCHITECTURES native)
