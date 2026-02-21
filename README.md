@@ -4,7 +4,7 @@ GPU-accelerated verification of Goldbach's conjecture using CUDA.
 
 **Goldbach's conjecture** states that every even integer greater than 2
 can be expressed as the sum of two prime numbers. First proposed in 1742,
-it remains one of the oldest unsolved problems in mathematics — verified
+it remains one of the oldest unsolved problems in mathematics. Verified
 computationally up to 4×10^18 but never formally proved.
 
 This project implements a GPU-accelerated verification engine using CUDA,
@@ -23,7 +23,7 @@ a CPU baseline.
 | 10^8  | 3,819ms  | 25ms     | 153x    |
 | 10^9  | 42,936ms | 206ms    | 208x    |
 
-No counterexamples found up to 10^9.
+No counterexamples found up to 10^9, as expected.
 
 ## Single number verification
 Using Miller-Rabin primality test on GPU, individual large numbers
@@ -36,7 +36,7 @@ can be checked without storing a prime table in memory.
 | 10^18 | 14831 + 999999999999985169 | 1.5s |
 | 10^19 | 226283 + 9999999999999773717 | 1.5s |
 
-Timing is essentially constant — partitions are always found quickly
+Timing is essentially constant; partitions are always found quickly
 with small primes. Limited to uint64_t max (~1.8 x 10^19).
 
 ## Build
