@@ -42,3 +42,8 @@ target_link_libraries(test_bitset PRIVATE bitset_lib)
 add_executable(goldbach_gpu2 src/goldbach_gpu2.cu)
 target_link_libraries(goldbach_gpu2 PRIVATE bitset_lib)
 set_property(TARGET goldbach_gpu2 PROPERTY CUDA_ARCHITECTURES native)
+
+# Big integer Goldbach checker using GMP
+add_executable(big_check src/big_check.cpp)
+target_link_libraries(big_check PRIVATE gmp)
+
