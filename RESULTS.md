@@ -134,7 +134,10 @@ range verification.
 - [x] Compact prime bitset (16x memory reduction)
 - [x] GPU range verifier with bitset (to 10^11)
 - [x] Single number checker with Miller-Rabin (to 1.8 × 10^19)
-- [ ] Parallel CPU sieve with OpenMP (target: 8-16x sieve speedup)
+- [ ] Parallel CPU sieve with OpenMP (in progress — diagnosing atomic contention)
 - [ ] Segmented bitset (removes VRAM ceiling, target: 10^12+)
 - [ ] Count partitions c(n) at scale
+- [ ] Big integer single-number checker using GMP — verify Goldbach
+      for arbitrarily large individual numbers (10^50, 10^100, ...)
+      using probabilistic prime search + Miller-Rabin
 - [ ] Cloud GPU run (A100, target: push range frontier)
