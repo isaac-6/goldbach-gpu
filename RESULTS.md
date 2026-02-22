@@ -84,11 +84,12 @@ No GPU used. No size limit, works for any even number.
 | 2026 | 10^50     | 51   | 383    | 43ms    |
 | 2026 | 10^100    | 101  | 797    | 43ms    |
 | 2026 | 10^200    | 204  | 113    | 43ms    |
-| 2026 | 10^1000   | 1001 | 26,981 | 2,299ms |
-| 2026 | 2x10^1000 | 1001 | 14,437 | 1,405ms |
-| 2026 | 4x10^1000 | 1001 | 83     | 82ms    |
-| 2026 | 8x10^1000 | 1001 | 12,601 | 1,226ms |
-| 2026 | 10^10000  | 10001 | unknown | >10min (aborted) |
+| 2026 | 10^1000   | 1001  | 26,981 | 2,299ms  | 1 thread  |
+| 2026 | 2x10^1000 | 1001  | 14,437 | 1,405ms  | 1 thread  |
+| 2026 | 4x10^1000 | 1001  | 83     | 82ms     | 1 thread  |
+| 2026 | 8x10^1000 | 1001  | 12,601 | 1,226ms  | 1 thread  |
+| 2026 | 10^1000   | 1001  | unknown| 363ms    | 20 threads|
+| 2026 | 10^10000  | 10001 | 47,717 | 231,051ms| 20 threads|
 
 Timing depends primarily on which prime p gives a valid partition,
 not on the digit count of n. p=83 finds instantly; p=26,981 takes 2.3s.
@@ -105,7 +106,7 @@ not on the digit count of n. p=83 finds instantly; p=26,981 takes 2.3s.
 - [x] GPU range verifier, bitset (to 10^11)
 - [x] OpenMP parallel sieve, 1.7x speedup (memory-bandwidth limited)
 - [x] GMP big integer single number checker (verified to 10^1000)
-- [ ] Parallel big_check with OpenMP, test multiple p simultaneously
+- [x] Parallel big_check with OpenMP, 6x speedup, verified 10^10000 in 231s
 - [ ] Segmented bitset, remove VRAM ceiling, target 10^12+
 - [ ] GPU sieve, target 8x sieve speedup
 - [ ] Range verification to 10^12 and beyond
