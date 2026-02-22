@@ -1,17 +1,11 @@
 // big_check.cpp
 // Goldbach verification for arbitrarily large even numbers.
-// Uses GMP (GNU Multiple Precision) for big integer arithmetic.
-// Works for any even number regardless of size — no uint64_t limit.
-//
-// Strategy:
-//   1. Generate small primes up to a chunk size on CPU
-//   2. For each prime p <= n/2, compute q = n - p using GMP
-//   3. Test q with GMP's Miller-Rabin primality test
-//   4. Report first valid partition found
+// Uses GMP for big integer arithmetic + OpenMP for parallelism.
+// Each thread tests a different prime p independently.
 //
 // Usage:
-//   ./big_check 123456789012345678901234567890   (any even number as string)
-//   ./big_check                                  (uses default 10^50)
+//   ./big_check                                    (default 10^50)
+//   ./big_check "1000...000"                       (any even number)
 
 #include <gmp.h>
 #include <iostream>
@@ -19,9 +13,11 @@
 #include <string>
 #include <chrono>
 #include <cstdint>
+#include <atomic>
+#include <omp.h>
 
 // -------------------------------------------------------
-// Generate all primes up to `limit` using simple sieve.
+// Generate all primes up to limit using simple sieve.
 // -------------------------------------------------------
 std::vector<uint64_t> generate_primes(uint64_t limit) {
     std::vector<char> is_prime(limit + 1, 1);
@@ -39,117 +35,118 @@ std::vector<uint64_t> generate_primes(uint64_t limit) {
     return primes;
 }
 
-// -------------------------------------------------------
-// Check Goldbach for a single large even number n.
-// n is passed as a decimal string — no size limit.
-// -------------------------------------------------------
 void big_check(const std::string& n_str) {
     std::cout << "Checking Goldbach for n = " << n_str << "\n";
     std::cout << "  (" << n_str.size() << " digits)\n\n";
 
     // -------------------------------------------------------
-    // Step 1: Parse n from string into GMP integer
+    // Step 1: Parse n into GMP integer
     // -------------------------------------------------------
-    mpz_t n, n_half, q, p_mpz;
+    mpz_t n, n_half;
     mpz_init(n);
     mpz_init(n_half);
-    mpz_init(q);
-    mpz_init(p_mpz);
 
     if (mpz_set_str(n, n_str.c_str(), 10) != 0) {
         std::cerr << "Error: invalid number string\n";
         mpz_clear(n); mpz_clear(n_half);
-        mpz_clear(q); mpz_clear(p_mpz);
         return;
     }
 
-    // Validate: must be even and >= 4
     if (mpz_odd_p(n)) {
         std::cerr << "Error: n must be even\n";
         mpz_clear(n); mpz_clear(n_half);
-        mpz_clear(q); mpz_clear(p_mpz);
         return;
     }
 
     if (mpz_cmp_ui(n, 4) < 0) {
         std::cerr << "Error: n must be >= 4\n";
         mpz_clear(n); mpz_clear(n_half);
-        mpz_clear(q); mpz_clear(p_mpz);
         return;
     }
 
-    // Precompute n/2 — we never need p > n/2
-    // because pairs (p,q) and (q,p) are the same partition
-    mpz_fdiv_q_2exp(n_half, n, 1);  // n_half = n / 2
+    // Precompute n/2 -- never need p > n/2
+    mpz_fdiv_q_2exp(n_half, n, 1);
 
     // -------------------------------------------------------
-    // Step 2: Generate candidate primes p up to chunk size.
-    // We start with primes up to 10^7 — almost always enough.
-    // If no partition found, extend the search.
+    // Step 2: Generate candidate primes
     // -------------------------------------------------------
-    const uint64_t CHUNK = 10'000'000ULL;  // 10^7
+    const uint64_t CHUNK = 10'000'000ULL;
 
     auto t_start = std::chrono::high_resolution_clock::now();
 
-    bool found = false;
-    uint64_t chunk_start = 0;
-    uint64_t p_found = 0;
-    std::string q_found_str;
+    std::cout << "Generating primes up to " << CHUNK << "...\n";
+    auto primes = generate_primes(CHUNK);
+    std::cout << "Testing " << primes.size()
+              << " primes using "
+              << omp_get_max_threads()
+              << " threads...\n";
 
-    while (!found) {
-        uint64_t chunk_end = chunk_start + CHUNK;
+    // -------------------------------------------------------
+    // Step 3: Parallel search across primes.
+    //
+    // Each thread gets its own GMP variables -- GMP is not
+    // thread-safe when sharing mpz_t objects, so every thread
+    // must have its own local copies of q and p_mpz.
+    //
+    // We use std::atomic<bool> found_flag to signal all threads
+    // to stop as soon as any thread finds a valid partition.
+    //
+    // We use critical section to safely write the result.
+    // -------------------------------------------------------
+    std::atomic<bool> found_flag(false);
+    uint64_t    p_result = 0;
+    std::string q_result_str;
 
-        std::cout << "Generating primes up to " << chunk_end << "...\n";
-        auto primes = generate_primes(chunk_end);
+    #pragma omp parallel
+    {
+        // Each thread has its own GMP variables
+        mpz_t q_local, p_mpz_local;
+        mpz_init(q_local);
+        mpz_init(p_mpz_local);
 
-        std::cout << "Testing " << primes.size()
-                  << " primes as candidates for p...\n";
+        #pragma omp for schedule(dynamic, 64)
+        for (int64_t i = 0; i < (int64_t)primes.size(); i++) {
+            // Early exit if another thread found a partition
+            if (found_flag.load(std::memory_order_relaxed)) continue;
 
-        for (uint64_t p : primes) {
-            // Skip primes handled in previous chunks
-            if (p <= chunk_start) continue;
+            uint64_t p = primes[i];
 
             // Set p as GMP integer
-            mpz_set_ui(p_mpz, p);
+            mpz_set_ui(p_mpz_local, p);
 
-            // Break early: once p > n/2, all remaining
-            // primes give q < p — duplicate pairs, skip all
-            if (mpz_cmp(p_mpz, n_half) > 0) {
-                found = false;  // exhausted all pairs
-                goto done;
+            // Break early: p > n/2 means q < p, duplicate pair
+            if (mpz_cmp(p_mpz_local, n_half) > 0) {
+                found_flag.store(true);  // signal exhaustion
+                continue;
             }
 
             // Compute q = n - p
-            mpz_sub(q, n, p_mpz);
+            mpz_sub(q_local, n, p_mpz_local);
 
-            // q must be >= 2 to be prime
-            if (mpz_cmp_ui(q, 2) < 0) continue;
+            // q must be >= 2
+            if (mpz_cmp_ui(q_local, 2) < 0) continue;
 
-            // Test if q is prime using Miller-Rabin
-            // 25 rounds → error probability < 4^(-25) ≈ 10^(-15)
-            // Check primality BEFORE the q>=p comparison —
-            // primality test is expensive, but q<p is already
-            // impossible here since p <= n/2 guarantees q >= p
-            if (mpz_probab_prime_p(q, 25) > 0) {
-                // Found a valid partition
-                found = true;
-                p_found = p;
-
-                char* q_str = mpz_get_str(nullptr, 10, q);
-                q_found_str = std::string(q_str);
-                free(q_str);
-                goto done;
+            // Test primality with Miller-Rabin (25 rounds)
+            if (mpz_probab_prime_p(q_local, 25) > 0) {
+                // Found a partition -- record it
+                if (!found_flag.exchange(true)) {
+                    // Only first thread to find writes the result
+                    #pragma omp critical
+                    {
+                        p_result = p;
+                        char* q_str = mpz_get_str(nullptr, 10, q_local);
+                        q_result_str = std::string(q_str);
+                        free(q_str);
+                    }
+                }
             }
         }
 
-        if (!found) {
-            std::cout << "No partition found in primes up to "
-                      << chunk_end << " — extending search...\n";
-            chunk_start = chunk_end;
-        }
+        // Clean up thread-local GMP variables
+        mpz_clear(q_local);
+        mpz_clear(p_mpz_local);
     }
 
-done:
     auto t_end = std::chrono::high_resolution_clock::now();
     double ms = std::chrono::duration<double,
                 std::milli>(t_end - t_start).count();
@@ -158,37 +155,31 @@ done:
     // Results
     // -------------------------------------------------------
     std::cout << "\n--- Result ---\n";
-    if (found) {
-        std::cout << n_str << "\n  = " << p_found
-                  << " + " << q_found_str << "\n";
-        std::cout << "\np is " << std::to_string(p_found).size()
-                  << " digits, q is " << q_found_str.size()
+    if (p_result > 0) {
+        std::cout << n_str << "\n  = " << p_result
+                  << " + " << q_result_str << "\n";
+        std::cout << "\np is " << std::to_string(p_result).size()
+                  << " digits, q is " << q_result_str.size()
                   << " digits\n";
         std::cout << "Goldbach holds. ✓\n";
     } else {
-        std::cout << "NO PARTITION FOUND — counterexample!\n";
+        std::cout << "NO PARTITION FOUND -- counterexample!\n";
     }
 
     std::cout << "\n--- Timing ---\n";
-    std::cout << "Total time: " << ms << " ms\n";
+    std::cout << "Threads used : " << omp_get_max_threads() << "\n";
+    std::cout << "Total time   : " << ms << " ms\n";
 
-    // Cleanup GMP
     mpz_clear(n);
     mpz_clear(n_half);
-    mpz_clear(q);
-    mpz_clear(p_mpz);
 }
 
 int main(int argc, char* argv[]) {
-    // Default: 10^50
     std::string n_str =
         "100000000000000000000000000000000000000000000000000";
 
-    if (argc > 1) {
-        n_str = argv[1];
-    }
+    if (argc > 1) n_str = argv[1];
 
-    // Make sure n is even — if odd, subtract 1
     if ((n_str.back() - '0') % 2 != 0) {
         std::cerr << "Warning: n is odd, using n-1 instead\n";
         n_str.back() -= 1;
@@ -197,4 +188,3 @@ int main(int argc, char* argv[]) {
     big_check(n_str);
     return 0;
 }
-
