@@ -46,3 +46,8 @@ set_property(TARGET goldbach_gpu2 PROPERTY CUDA_ARCHITECTURES native)
 # Big integer Goldbach checker using GMP + OpenMP
 add_executable(big_check src/big_check.cpp)
 target_link_libraries(big_check PRIVATE gmp OpenMP::OpenMP_CXX)
+
+# GPU Goldbach verifier v3 (correct segmented design)
+add_executable(goldbach_gpu3 src/goldbach_gpu3.cu)
+target_link_libraries(goldbach_gpu3 PRIVATE bitset_lib)
+set_property(TARGET goldbach_gpu3 PROPERTY CUDA_ARCHITECTURES native)
