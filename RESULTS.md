@@ -72,6 +72,35 @@ Sieve is 80% of total runtime, main bottleneck.
 OpenMP parallel sieve (20 threads): 1.7x speedup on sieve.
 Memory-bandwidth limited, adding cores does not scale linearly.
 
+### 2026 - Range verification (GPU segmented bitset)
+Tool: `goldbach_gpu3` (goldbach_gpu3.cu)
+Method: Double sieve over n. For each segment [A, B]:
+  Phase 1 (GPU): for each prime p <= P_SMALL, mark all even n
+    where n-p is prime as verified. q checked via small bitset,
+    segment bitset, or Miller-Rabin depending on where q falls.
+  Phase 2 (CPU): exhaustive fallback for any unverified n.
+    All odd p up to n/2 tested. Expected to never trigger.
+Fixes the conceptual bug in gpu3 draft: q is no longer forced
+into the current segment.
+
+| Date | Limit | Even n checked | P_SMALL | SEG_SIZE | Total time | Failures | Phase 2 |
+|------|-------|----------------|---------|----------|------------|----------|---------|
+| 2026 | 10^10 | 4,999,999,999  | 1,000,000 | 10^9 | 44,803ms   | 0 | 0 |
+| 2026 | 10^12 | 499,999,999,999| 2,000,000 | 5x10^8 | 5,742,130ms | 0 | 0 |
+
+Parameters used for 10^12 run:
+- LIMIT    = 10^12
+- SEG_SIZE = 500,000,000 (5x10^8 even numbers per segment)
+- P_SMALL  = 2,000,000
+- P_BATCH  = 100,000
+- GPU primes used: 148,933
+- Segment buffer: 59 MB
+- Verified buffer: 476 MB
+
+Zero Phase 2 fallbacks confirms empirically that P_SMALL = 2,000,000
+is sufficient for all even n up to 10^12. The adaptive multi-phase
+optimization (planned) will exploit this to reduce runtime significantly.
+
 ---
 
 ### 2026 - Big integer single number verification (GMP)
@@ -107,9 +136,10 @@ not on the digit count of n. p=83 finds instantly; p=26,981 takes 2.3s.
 - [x] OpenMP parallel sieve, 1.7x speedup (memory-bandwidth limited)
 - [x] GMP big integer single number checker (verified to 10^1000)
 - [x] Parallel big_check with OpenMP, 6x speedup, verified 10^10000 in 231s
-- [ ] Segmented bitset, remove VRAM ceiling, target 10^12+
-- [ ] GPU sieve, target 8x sieve speedup
-- [ ] Range verification to 10^12 and beyond
+- [x] GPU segmented verifier with correct double-sieve design (gpu3)
+- [x] Range verification to 10^12 (500 billion even numbers, 96 minutes)
+- [ ] Adaptive multi-phase p-search (target: 10^12 in ~5-10 minutes)
+- [ ] Range verification to 10^13 with optimized gpu3
 - [ ] Count partitions c(n) at scale
 - [ ] Big integer checker to 10^10000 (needs parallelization)
 - [ ] Cloud GPU run (A100 80GB, target: push range frontier)
