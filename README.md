@@ -22,6 +22,7 @@ No counterexamples have been found in any computation.
 - RAM: 32 GB
 
 ## Results summary
+<img width="2814" height="1132" alt="image" src="https://github.com/user-attachments/assets/91c4da61-11fb-40d7-ae1b-5fb756d836e0" />
 
 ### Range verification (all even n in [4, LIMIT])
 | Limit | Sieve (CPU) | Kernel (GPU) | Total | Failures |
