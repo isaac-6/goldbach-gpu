@@ -117,8 +117,8 @@ No GPU used. No size limit, works for any even number.
 | 2026 | 2x10^1000 | 1001  | 14,437 | 1,405ms  | 1 thread  |
 | 2026 | 4x10^1000 | 1001  | 83     | 82ms     | 1 thread  |
 | 2026 | 8x10^1000 | 1001  | 12,601 | 1,226ms  | 1 thread  |
-| 2026 | 10^1000   | 1001  | unknown| 363ms    | 20 threads|
-| 2026 | 10^10000  | 10001 | 47,717 | 231,051ms| 20 threads|
+| 2026 | 10^1000   | 1001  | 26,981| 363ms    | 20 threads|
+| 2026 | 10^10000  | 10001 | 47,717 | 181s| 20 threads|
 
 Timing depends primarily on which prime p gives a valid partition,
 not on the digit count of n. p=83 finds instantly; p=26,981 takes 2.3s.
@@ -138,9 +138,7 @@ not on the digit count of n. p=83 finds instantly; p=26,981 takes 2.3s.
 - [x] Parallel big_check with OpenMP, 6x speedup, verified 10^10000 in 231s
 - [x] GPU segmented verifier with correct double-sieve design (gpu3)
 - [x] Range verification to 10^12 (500 billion even numbers, 96 minutes)
+- [x] Big integer checker to 10^10000 (needs parallelization)
 - [ ] Adaptive multi-phase p-search (target: 10^12 in ~5-10 minutes)
 - [ ] Range verification to 10^13 with optimized gpu3
 - [ ] Count partitions c(n) at scale
-- [ ] Big integer checker to 10^10000 (needs parallelization)
-- [ ] Cloud GPU run (A100 80GB, target: push range frontier)
-- [ ] Write-up for arXiv or JOSS
