@@ -36,7 +36,14 @@ std::vector<uint64_t> generate_primes(uint64_t limit) {
 }
 
 void big_check(const std::string& n_str) {
-    std::cout << "Checking Goldbach for n = " << n_str << "\n";
+    // std::cout << "Checking Goldbach for n = " << n_str << "\n";
+    // std::cout << "  (" << n_str.size() << " digits)\n\n";
+    if (n_str.size() <= 100) {
+        std::cout << "Checking Goldbach for n = " << n_str << "\n";
+    } else {
+        std::cout << "Checking Goldbach for n with "
+                  << n_str.size() << " digits\n";
+    }
     std::cout << "  (" << n_str.size() << " digits)\n\n";
 
     // -------------------------------------------------------
@@ -156,11 +163,18 @@ void big_check(const std::string& n_str) {
     // -------------------------------------------------------
     std::cout << "\n--- Result ---\n";
     if (p_result > 0) {
-        std::cout << n_str << "\n  = " << p_result
-                  << " + " << q_result_str << "\n";
-        std::cout << "\np is " << std::to_string(p_result).size()
-                  << " digits, q is " << q_result_str.size()
-                  << " digits\n";
+        // Only print full n if it is short enough to be readable
+        if (n_str.size() <= 100) {
+            std::cout << n_str << "\n  = " << p_result
+                      << " + " << q_result_str << "\n";
+        } else {
+            std::cout << "n has " << n_str.size() << " digits\n";
+            std::cout << "p = " << p_result
+                      << " (" << std::to_string(p_result).size()
+                      << " digits)\n";
+            std::cout << "q has " << q_result_str.size()
+                      << " digits\n";
+        }
         std::cout << "Goldbach holds. ✓\n";
     } else {
         std::cout << "NO PARTITION FOUND -- counterexample!\n";
