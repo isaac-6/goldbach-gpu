@@ -99,7 +99,7 @@ Parameters used for 10^12 run:
 
 Zero Phase 2 fallbacks confirms empirically that P_SMALL = 2,000,000
 is sufficient for all even n up to 10^12. The adaptive multi-phase
-optimization (planned) will exploit this to reduce runtime significantly.
+optimization (implemented) will exploit this to reduce runtime significantly.
 
 ---
 
@@ -122,7 +122,6 @@ No GPU used. No size limit, works for any even number.
 
 Timing depends primarily on which prime p gives a valid partition,
 not on the digit count of n. p=83 finds instantly; p=26,981 takes 2.3s.
-10^10000 aborted, estimated 30-60min single-threaded.
 
 ---
 
