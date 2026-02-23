@@ -1,3 +1,7 @@
+![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)
+![Language: C++](https://img.shields.io/badge/Language-C%2B%2B-blue.svg)
+![CUDA: 12.x](https://img.shields.io/badge/CUDA-12.x-green.svg)
+
 # goldbach-gpu
 
 GPU-accelerated verification of Goldbach's conjecture using CUDA and GMP.
