@@ -31,7 +31,6 @@ Method: Byte array prime table + GPU kernel, one thread per even n
 | 2026 | 10^8  | 49,999,999     | 1,042ms | 25ms   | 0 |
 | 2026 | 10^9  | 499,999,999    | 12,928ms| 206ms  | 0 |
 
-GPU speedup vs CPU: 27x at 10^6, 153x at 10^8, 208x at 10^9.
 VRAM limit hit at 10^9 (953 MB byte array).
 
 ---
