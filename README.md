@@ -24,17 +24,6 @@ No counterexamples have been found in any computation.
 ## Results summary
 <img width="2814" height="1132" alt="image" src="https://github.com/user-attachments/assets/91c4da61-11fb-40d7-ae1b-5fb756d836e0" />
 
-### Range verification (all even n in [4, LIMIT])
-| Limit | Sieve (CPU) | Kernel (GPU) | Total | Failures |
-|-------|-------------|--------------|-------|----------|
-| 10^6  | 6ms         | 0.91ms       | 31ms  | 0 |
-| 10^8  | 1,042ms     | 25ms         | 4,861ms | 0 |
-| 10^9  | 12,928ms    | 206ms        | 57,848ms | 0 |
-| 10^10 | 31,238ms    | 7,893ms      | 39,131ms | 0 |
-| 10^11 | 380,746ms   | 95,123ms     | 475,869ms | 0 |
-
-GPU speedup over CPU baseline: up to 208x.
-
 ### Single number verification (GPU Miller-Rabin, uint64_t)
 | n | Partition | Time |
 |---|-----------|------|
