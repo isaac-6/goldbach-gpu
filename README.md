@@ -22,7 +22,19 @@ No counterexamples have been found in any computation.
 - RAM: 32 GB
 
 ## Results summary
+Figure shows times to check even numbers up to N.
 <img width="2814" height="1132" alt="image" src="https://github.com/user-attachments/assets/91c4da61-11fb-40d7-ae1b-5fb756d836e0" />
+
+
+### Range verification (GPU segmented bitset)
+Tool: `goldbach_gpu3` (goldbach_gpu3.cu)
+Method: Double sieve over n.
+
+| Date | Limit | Even n checked | P_SMALL | SEG_SIZE | Total time | Failures | Phase 2 |
+|------|-------|----------------|---------|----------|------------|----------|---------|
+| 2026 | 10^10 | 4,999,999,999  | 1,000,000 | 10^9 | 44,803ms   | 0 | 0 |
+| 2026 | 10^12 | 499,999,999,999| 2,000,000 | 5x10^8 | 5,742,130ms | 0 | 0 |
+
 
 ### Single number verification (GPU Miller-Rabin, uint64_t)
 | n | Partition | Time |
