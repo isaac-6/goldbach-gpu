@@ -35,11 +35,18 @@ uint64_t goldbach_count(uint64_t n, const std::vector<char>& is_prime) {
     return count;
 }
 
-int main() {
+int main(int argc, char** argv) {
     // -------------------------------------------------------
-    // Configuration — change these to test different ranges
+    // Parse command-line argument: LIMIT
     // -------------------------------------------------------
-    const uint64_t LIMIT = 1'000'000'000;   // check all even n up to this
+    if (argc < 2) {
+        std::cerr << "Usage: " << argv[0] << " <LIMIT>\n";
+        std::cerr << "Example: " << argv[0] << " 1000000000\n";
+        return 1;
+    }
+
+    uint64_t LIMIT = std::stoull(argv[1]);
+
     const bool PRINT_COUNTS = false;    // set true to print c(n) for every n
     const bool STOP_ON_FAIL = true;     // stop immediately if Goldbach fails
 

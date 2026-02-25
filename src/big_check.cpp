@@ -140,8 +140,13 @@ void big_check(const std::string& n_str) {
 }
 
 int main(int argc, char* argv[]) {
-    std::string n_str = "100000000000000000000000000000000000000000000000000";
-    if (argc > 1) n_str = argv[1];
+    if (argc < 2) {
+        std::cerr << "Usage: " << argv[0] << " <N>\n";
+        std::cerr << "Example: " << argv[0] << " 1000000000000000000000000000000\n";
+        return 1;
+    }
+
+    std::string n_str = argv[1];
 
     if ((n_str.back() - '0') % 2 != 0) {
         std::cerr << "Warning: n is odd, using n-1 instead\n";
