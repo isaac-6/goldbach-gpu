@@ -92,12 +92,18 @@ __global__ void goldbach_bitset_kernel(
     atomicMin(d_first_fail, (unsigned long long)n);
 }
 
-int main() {
+int main(int argc, char** argv) {
     // -------------------------------------------------------
-    // Configuration
+    // Parse LIMIT
     // -------------------------------------------------------
-    const uint64_t LIMIT      = 10'000'000'000ULL;  // 10^10
-    const uint64_t BATCH_SIZE = 100'000'000ULL;      // 10^8 per batch
+    if (argc < 2) {
+        std::cerr << "Usage: " << argv[0] << " <LIMIT>\n";
+        std::cerr << "Example: " << argv[0] << " 10000000000\n";
+        return 1;
+    }
+
+    uint64_t LIMIT = std::stoull(argv[1]);
+    const uint64_t BATCH_SIZE = 100'000'000ULL;  // 10^8 per batch
 
     std::cout << "Goldbach range verifier (GPU bitset)\n";
     std::cout << "Checking all even n in [4, " << LIMIT << "]\n\n";
@@ -232,7 +238,7 @@ int main() {
 
     std::cout << "Sieve time  (CPU)    : " << sieve_ms << " ms\n";
     std::cout << "Kernel time (GPU)    : " << gpu_ms   << " ms\n";
-    std::cout << "Total                : " << sieve_ms + gpu_ms
+    std::cout << "Total time           : " << sieve_ms + gpu_ms
               << " ms\n";
 
     if (failures == 0)
