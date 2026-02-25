@@ -1,0 +1,33 @@
+% Auto-generated PGFPlots data
+% Generated on Wed Feb 25 21:27:55 GMT 2026
+
+\addplot[mark=square*, color=black, dashed, thick] coordinates {
+    (1000000, 9.7217)
+    (10000000, 129.606)
+    (100000000, 2385.22)
+    (1000000000, 24004.7)
+    (1000000, 10.0072)
+    (10000000, 127.343)
+    (100000000, 1864.2)
+    (1000000000, 22336.4)
+};
+\addlegendentry{CPU baseline}
+
+\addplot[mark=o, color=blue, thick] coordinates {
+    (100000000, 110.122)
+    (1000000000, 1443.73)
+    (100000000, 111.195)
+    (1000000000, 1316.4)
+    (10000000000, 25049.4)
+};
+\addlegendentry{\texttt{goldbach\_gpu2} (global bitset)}
+
+\addplot[mark=triangle*, color=red, thick] coordinates {
+    (100000000, 219.551)
+    (1000000000, 4341.4)
+    (100000000, 235.311)
+    (1000000000, 3549.72)
+    (10000000000, 41993.5)
+};
+\addlegendentry{\texttt{goldbach\_gpu3} (segmented)}
+

@@ -112,7 +112,7 @@ with a global bitset design on 8 GB VRAM.
 
 ```bash
 mkdir build && cd build
-cmake ..
+cmake .. -DBUILD_LEGACY=OFF     # enable legacy tools (like gpu2) with -DBUILD_LEGACY=ON
 make -j$(nproc)
 ```
 
@@ -127,25 +127,28 @@ sudo apt install libgmp-dev    # GMP
 
 ## Usage
 
+All tools now support modular CLI argument parsing.  
+Example: `./build/bin/goldbach_gpu3 1000000000000`
+
 ### CPU range verifier
 ```bash
 ./goldbach
 ```
-Edit `LIMIT` in `src/cpu_goldbach.cpp`. Useful as correctness baseline.
+Useful as correctness baseline.
 Expected time: ~23 s at 10⁹, ~5 min at 10¹⁰.
 
 ### GPU range verifier -- compact bitset (recommended up to 10¹¹)
 ```bash
 ./goldbach_gpu2
 ```
-Edit `LIMIT` in `src/goldbach_gpu2.cu`. Requires VRAM ≥ N/16 bytes.
+Requires VRAM ≥ N/16 bytes.
 Expected time: ~1.4 s at 10⁹, ~25 s at 10¹⁰, ~8 min at 10¹¹.
 
 ### GPU segmented verifier (recommended for 10¹¹ and beyond)
 ```bash
 ./goldbach_gpu3
 ```
-Edit `LIMIT`, `SEG_SIZE`, and `P_SMALL` in `src/goldbach_gpu3.cu`.
+One can edit `SEG_SIZE`, and `P_SMALL` in `src/goldbach_gpu3.cu`.
 No VRAM ceiling. Expected time: ~96 min at 10¹².
 
 To reproduce the 10¹² result:
@@ -210,9 +213,9 @@ All results were produced on the following fixed platform:
 | GPU | NVIDIA RTX 3070, 8 GB VRAM, 448 GB/s bandwidth |
 | RAM | 32 GB |
 | OS | WSL2, Ubuntu 24.04 |
-| CUDA | Record your version: `nvcc --version` |
-| GCC | Record your version: `gcc --version` |
-| GMP | Record your version: `apt show libgmp-dev` |
+| CUDA | Record your version: V13.1.115 |
+| GCC | Record your version: Ubuntu 13.3.0-6ubuntu2~24.04.1 |
+| GMP | Record your version: 2:6.3.0+dfsg-2ubuntu6.1 |
 
 To record your environment:
 ```bash
