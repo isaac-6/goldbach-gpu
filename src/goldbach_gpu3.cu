@@ -230,14 +230,22 @@ static std::vector<uint64_t> build_segment_bitset(
     return words;
 }
 
-int main() {
+int main(int argc, char** argv) {
     // -------------------------------------------------------
-    // Configuration -- start at 10^10 for validation
+    // Parse command-line argument: LIMIT
     // -------------------------------------------------------
-    const uint64_t LIMIT    = 1'000'000'000'000ULL;  // 10^10
+    if (argc < 2) {
+        std::cerr << "Usage: " << argv[0] << " <LIMIT>\n";
+        std::cerr << "Example: " << argv[0] << " 1000000000\n";
+        return 1;
+    }
+
+    uint64_t LIMIT = std::stoull(argv[1]);
+
+    // Default parameters (can also be made CLI options later)
     const uint64_t SEG_SIZE = 500'000'000ULL;   // even numbers per segment
-    const uint64_t P_SMALL  = 2'000'000ULL;        // GPU checks p <= 10^6
-    const uint64_t P_BATCH  = 100'000ULL;           // primes per kernel launch
+    const uint64_t P_SMALL  = 2'000'000ULL;     // GPU checks p <= 2e6
+    const uint64_t P_BATCH  = 100'000ULL;       // primes per kernel launch
 
     std::cout << "Goldbach segmented verifier (Phase 1: GPU, Phase 2: CPU)\n";
     std::cout << "Checking all even n in [4, " << LIMIT << "]\n";
