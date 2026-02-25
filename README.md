@@ -167,14 +167,30 @@ partition but not necessarily the minimal one (concurrent threads).
 
 ### Arbitrary precision checker (any size)
 ```bash
-./big_check                            # default: 10⁵⁰
-./big_check "$(python3 -c "print('1' + '0'*1000)")"    # 10¹⁰⁰⁰
-./big_check "$(python3 -c "print('1' + '0'*10000)")"   # 10¹⁰⁰⁰⁰
+./big_check                            # default: 10^50
+./big_check "$(python3 -c "print('1' + '0'*1000)")"    # 10^1000
+./big_check "$(python3 -c "print('1' + '0'*10000)")"   # 10^10000
 ./big_check "123456789012345678901234567890"            # arbitrary even number
 ```
-Uses GMP exact arithmetic + probabilistic Miller-Rabin (25 rounds).
-Practical limit: ~10¹⁰⁰⁰⁰ in a few minutes on 20 threads.
-Beyond ~10⁵⁰⁰⁰⁰ each GMP primality test becomes very slow.
+
+Candidate primes p are generated deterministically by a standard Sieve
+of Eratosthenes up to 10^7 (664,579 primes). For each p, q = n - p is
+computed exactly using GMP arbitrary precision arithmetic, then tested
+for primality using GMP's Miller-Rabin with 25 rounds (false positive
+probability < 4^-25 ≈ 10^-15 per test). Since p is sieve-generated,
+only the test on q is probabilistic.
+
+Primes are processed in batches of 1,000 with a synchronisation barrier
+between batches. This prevents thread runaway: without batching, fast
+threads on small-p tests could race far ahead of slow threads doing
+expensive GMP tests, causing a large non-minimal p to be returned first.
+With batching, the winning p is the smallest in the first batch containing
+a valid partition.
+
+Practical limit: GMP primality tests scale roughly as O(d^3) in digit
+count d. At 10^10000 (d = 10,001) each test takes milliseconds; beyond
+~10^50000 each test takes seconds and exhaustive search becomes
+infeasible in practice.
 
 ### Validation tests
 ```bash
