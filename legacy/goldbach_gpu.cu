@@ -95,12 +95,18 @@ uint64_t cross_check(
     return mismatches;
 }
 
-int main() {
+int main(int argc, char** argv) {
     // -------------------------------------------------------
-    // Configuration
+    // Parse LIMIT
     // -------------------------------------------------------
-    const uint64_t LIMIT       = 1'000'000'000;  // 10^9
-    const uint64_t SAMPLE_SIZE = 1'000;          // random cross-check samples
+    if (argc < 2) {
+        std::cerr << "Usage: " << argv[0] << " <LIMIT>\n";
+        std::cerr << "Example: " << argv[0] << " 1000000000\n";
+        return 1;
+    }
+
+    uint64_t LIMIT = std::stoull(argv[1]);
+    const uint64_t SAMPLE_SIZE = 1'000;  // random cross-check samples
 
     // -------------------------------------------------------
     // Step 1: Build prime table on CPU
