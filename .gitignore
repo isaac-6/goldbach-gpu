@@ -1,6 +1,10 @@
 # Build output
 build/
 
+# benchmark data
+benchmarks/plot_data.tex
+benchmarks.log
+
 # CMake
 CMakeCache.txt
 CMakeFiles/
