@@ -18,7 +18,7 @@ hardware. **No counterexamples have been found in any computation.**
 ---
 
 ## Headline result
-Figure shows times to check even numbers up to N.
+Figure shows times to check all even numbers up to N.
 <img width="2814" height="1132" alt="image" src="https://github.com/user-attachments/assets/91c4da61-11fb-40d7-ae1b-5fb756d836e0" />
 
 > **All even integers up to 10¹² verified on a single NVIDIA RTX 3070 (8 GB VRAM)
@@ -47,8 +47,7 @@ against the previous:
 
 | Tool | Method | Range | Hard limit |
 |------|--------|-------|------------|
-| `goldbach` | CPU sieve + sequential scan | exhaustive | time |
-| `goldbach_gpu` | GPU, byte array prime table | exhaustive | VRAM (~10⁹) |
+| `cpu_goldbach` | CPU sieve + sequential scan | exhaustive | system RAM / time |
 | `goldbach_gpu2` | GPU, compact bitset (1 bit/odd) | exhaustive | VRAM (~10¹¹) |
 | `goldbach_gpu3` | GPU, segmented double-sieve | exhaustive | time only |
 | `single_check` | GPU Miller-Rabin | single number | uint64_t (~1.8×10¹⁹) |
@@ -112,7 +111,7 @@ with a global bitset design on 8 GB VRAM.
 
 ```bash
 mkdir build && cd build
-cmake .. -DBUILD_LEGACY=OFF     # enable legacy tools (like gpu2) with -DBUILD_LEGACY=ON
+cmake .. -DBUILD_LEGACY=OFF     # enable legacy tools (like goldbach_gpu) with -DBUILD_LEGACY=ON
 make -j$(nproc)
 ```
 
@@ -127,78 +126,59 @@ sudo apt install libgmp-dev    # GMP
 
 ## Usage
 
-All tools now support modular CLI argument parsing.  
-Example: `./build/bin/goldbach_gpu3 1000000000000`
+All tools now support modular CLI argument parsing and feature dynamic hardware safety guards to prevent Out-Of-Memory (OOM) crashes. Pass `-h` or `--help` to any tool for detailed usage instructions.
+
+All compiled executables are located in the `build/bin/` directory.
 
 ### CPU range verifier
 ```bash
-./goldbach
+./build/bin/cpu_goldbach 1000000000
 ```
-Useful as correctness baseline.
+Useful as a correctness baseline. 
 Expected time: ~23 s at 10⁹, ~5 min at 10¹⁰.
 
-### GPU range verifier -- compact bitset (recommended up to 10¹¹)
+### GPU range verifier -- compact bitset (recommended up to 10¹⁰)
 ```bash
-./goldbach_gpu2
+./build/bin/goldbach_gpu2 10000000000
 ```
-Requires VRAM ≥ N/16 bytes.
-Expected time: ~1.4 s at 10⁹, ~25 s at 10¹⁰, ~8 min at 10¹¹.
+Requires VRAM ≥ N/16 bytes. Hardware VRAM is automatically checked at launch. 
+Expected time: ~1.4 s at 10⁹, ~25 s at 10¹⁰.
 
 ### GPU segmented verifier (recommended for 10¹¹ and beyond)
 ```bash
-./goldbach_gpu3
+./build/bin/goldbach_gpu3 1000000000000
 ```
-One can edit `SEG_SIZE`, and `P_SMALL` in `src/goldbach_gpu3.cu`.
-No VRAM ceiling. Expected time: ~96 min at 10¹².
+No VRAM ceiling. Hardware VRAM is checked against the segment size at launch to ensure safe execution. Expected time: ~96 min at 10¹².
 
-To reproduce the 10¹² result:
-```cpp
-// in goldbach_gpu3.cu
-const uint64_t LIMIT    = 1'000'000'000'000ULL;
-const uint64_t SEG_SIZE = 500'000'000ULL;
-const uint64_t P_SMALL  = 2'000'000ULL;
-const uint64_t P_BATCH  = 100'000ULL;
+To reproduce the 10¹² result with specific segmentation and prime bounds, you can pass them directly via the CLI (`<LIMIT> [SEG_SIZE] [P_SMALL]`):
+```bash
+./build/bin/goldbach_gpu3 1000000000000 500000000 2000000
 ```
 
 ### GPU single number checker (up to ~1.8×10¹⁹)
 ```bash
-./single_check                         # default: 10¹²
-./single_check 999999999999999998      # any even uint64_t
+./build/bin/single_check 999999999999999998
 ```
-Uses deterministic Miller-Rabin with 12 witnesses. Returns a valid
-partition but not necessarily the minimal one (concurrent threads).
+Uses deterministic Miller-Rabin with 12 witnesses. Returns a valid partition but not necessarily the minimal one (due to concurrent GPU thread execution).
 
 ### Arbitrary precision checker (any size)
 ```bash
-./big_check                            # default: 10^50
-./big_check "$(python3 -c "print('1' + '0'*1000)")"    # 10^1000
-./big_check "$(python3 -c "print('1' + '0'*10000)")"   # 10^10000
-./big_check "123456789012345678901234567890"            # arbitrary even number
+./build/bin/big_check 100000000000000000000000000000000000000000000000000
+./build/bin/big_check "$(python3 -c "print('1' + '0'*1000)")"    # 10^1000
+./build/bin/big_check "$(python3 -c "print('1' + '0'*10000)")"   # 10^10000
 ```
 
-Candidate primes p are generated deterministically by a standard Sieve
-of Eratosthenes up to 10^7 (664,579 primes). For each p, q = n - p is
-computed exactly using GMP arbitrary precision arithmetic, then tested
-for primality using GMP's Miller-Rabin with 25 rounds (false positive
-probability < 4^-25 ≈ 10^-15 per test). Since p is sieve-generated,
-only the test on q is probabilistic.
+Candidate primes p are generated deterministically by a standard Sieve of Eratosthenes up to 10^7 (664,579 primes). For each p, q = n - p is computed exactly using GMP arbitrary precision arithmetic, then tested for primality using GMP's Miller-Rabin with 25 rounds (false positive probability < 4^-25 ≈ 10^-15 per test). Since p is sieve-generated, only the test on q is probabilistic.
 
-Primes are processed in batches of 1,000 with a synchronisation barrier
-between batches. This prevents thread runaway: without batching, fast
-threads on small-p tests could race far ahead of slow threads doing
-expensive GMP tests, causing a large non-minimal p to be returned first.
-With batching, the winning p is the smallest in the first batch containing
-a valid partition.
+Primes are processed in batches of 1,000 with a synchronisation barrier between batches. This prevents thread runaway: without batching, fast threads on small-p tests could race far ahead of slow threads doing expensive GMP tests, causing a large non-minimal p to be returned first. With batching, the winning p is the smallest in the first batch containing a valid partition.
 
-Practical limit: GMP primality tests scale roughly as O(d^3) in digit
-count d. At 10^10000 (d = 10,001) each test takes milliseconds; beyond
-~10^50000 each test takes seconds and exhaustive search becomes
-infeasible in practice.
+Practical limit: GMP primality tests scale roughly as O(d^3) in digit count d. At 10^10000 (d = 10,001) each test takes milliseconds; beyond ~10^50000 each test takes seconds and exhaustive search becomes infeasible in practice.
 
 ### Validation tests
+The framework includes a comprehensive automated validation suite that tests core functionality, CLI robustness, and negative hardware guards (e.g., safe failure on massive VRAM requests).
 ```bash
-./test_bitset    # validates prime bitset encoding correctness
-./test_sieve     # validates segmented sieve correctness
+cd tests
+./validation.sh
 ```
 
 ---
@@ -213,9 +193,9 @@ All results were produced on the following fixed platform:
 | GPU | NVIDIA RTX 3070, 8 GB VRAM, 448 GB/s bandwidth |
 | RAM | 32 GB |
 | OS | WSL2, Ubuntu 24.04 |
-| CUDA | Record your version: V13.1.115 |
-| GCC | Record your version: Ubuntu 13.3.0-6ubuntu2~24.04.1 |
-| GMP | Record your version: 2:6.3.0+dfsg-2ubuntu6.1 |
+| CUDA | V12.x / V13.x (Record your version) |
+| GCC | Ubuntu 13.x (Record your version) |
+| GMP | 6.3.x (Record your version) |
 
 To record your environment:
 ```bash
@@ -229,21 +209,23 @@ are documented in [RESULTS.md](RESULTS.md) for each run.
 
 ---
 
-## Project structure
+## 📂 Project Structure
 
-```
-src/
-  cpu_goldbach.cpp      # CPU range verifier (baseline)
-  goldbach_gpu.cu       # GPU range verifier (byte array, historical)
-  goldbach_gpu2.cu      # GPU range verifier (compact bitset, to 10^11)
-  goldbach_gpu3.cu      # GPU segmented verifier (no VRAM ceiling, to 10^12+)
-  single_check.cu       # GPU single number checker (Miller-Rabin, uint64_t)
-  big_check.cpp         # Arbitrary precision checker (GMP + OpenMP)
-  prime_bitset.hpp      # Compact prime bitset (1 bit per odd number)
-  prime_bitset.cpp      # Bitset construction (segmented sieve + OpenMP)
-  segmented_sieve.cpp   # Segmented sieve of Eratosthenes
-  test_bitset.cpp       # Bitset correctness tests
-  test_sieve.cpp        # Sieve correctness tests
+```text
+- `src/`
+  - `goldbach_gpu3.cu`   : Segmented double-sieve (Flagship, VRAM-independent).
+  - `goldbach_gpu2.cu`   : Global bitset verifier (VRAM-limited baseline).
+  - `big_check.cpp`      : Arbitrary precision checker (GMP + OpenMP).
+  - `single_check.cu`    : 64-bit deterministic Miller-Rabin checker.
+  - `cpu_goldbach.cpp`   : Sequential CPU baseline oracle.
+  - `prime_bitset.cpp`   : Parallel bitset construction.
+  - `segmented_sieve.cpp`: CPU-based sieving logic.
+- `include/`
+  - `prime_bitset.hpp`   : Core data structures and bit-indexing logic.
+- `legacy/`
+  - `goldbach_gpu.cu`    : Historical naive byte-array implementation.
+- `tests/`
+  - `validation.sh`      : Automated correctness and robustness test suite.
 ```
 
 ---
