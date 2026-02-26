@@ -4,7 +4,7 @@ authors:
   - family-names: "Llorente-Saguer"
     given-names: "Isaac"
     orcid: "https://orcid.org/0000-0002-7612-5331"
-title: "GoldbachGPU: An Open Source GPU-Accelerated Framework for Verification of Goldbach's Conjecture"
+title: "GoldbachGPU: An Open Source GPU-Accelerated Framework for Verification of Goldbach’s Conjecture"
 version: "1.0.0"
 date-released: 2026-02-26
 doi: "10.5281/zenodo.18788222"
@@ -24,7 +24,7 @@ preferred-citation:
     - family-names: "Llorente-Saguer"
       given-names: "Isaac"
       orcid: "https://orcid.org/0000-0002-7612-5331"
-  title: "GoldbachGPU (v1.0.0)"
+  title: "GoldbachGPU: An Open Source GPU-Accelerated Framework for Verification of Goldbach’s Conjecture (v1.0.0)"
   version: "1.0.0"
   doi: "10.5281/zenodo.18788222"
   date-released: 2026-02-26
