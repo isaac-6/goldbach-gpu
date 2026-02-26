@@ -188,14 +188,16 @@ cd tests
 All results were produced on the following fixed platform:
 
 | Component | Specification |
-|-----------|---------------|
-| CPU | Intel i7-12700H, 20 logical threads |
-| GPU | NVIDIA RTX 3070, 8 GB VRAM, 448 GB/s bandwidth |
-| RAM | 32 GB |
-| OS | WSL2, Ubuntu 24.04 |
-| CUDA | V12.x / V13.x (Record your version) |
-| GCC | Ubuntu 13.x (Record your version) |
-| GMP | 6.3.x (Record your version) |
+|----------|---------------|
+| **CPU** | Intel i7‑12700H, 20 logical threads |
+| **GPU** | NVIDIA RTX 3070, 8 GB VRAM, 448 GB/s bandwidth |
+| **RAM** | 32 GB |
+| **OS** | WSL2, Ubuntu 24.04 |
+| **CUDA Toolkit** | 13.1.115 |
+| **CUDA Build Info** | cuda_13.1.r13.1/compiler.37061995_0 (Dec 16 2025) |
+| **GCC** | 13.3.0 (Ubuntu 13.3.0-6ubuntu2~24.04.1) |
+| **OpenMP** | 4.5 |
+| **GMP** | 6.3.0+dfsg-2ubuntu6.1 |
 
 To record your environment:
 ```bash
