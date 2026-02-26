@@ -26,9 +26,10 @@ No GPU. Serves as correctness oracle for all GPU tools.
 
 | Limit | Even n checked | Sieve | Check | Total | Failures |
 |-------|----------------|-------|-------|-------|----------|
-| 10^7  | 4,999,999      | 27 ms | 89 ms | 117 ms | 0 |
-| 10^8  | 49,999,999     | 768 ms | 1,052 ms | 1,820 ms | 0 |
-| 10^9  | 499,999,999    | 9,836 ms | 12,786 ms | 22,622 ms | 0 |
+| 10^6  | 499,999      | 1.5 ms | 8.7 ms | 10 ms | 0 |
+| 10^7  | 4,999,999      | 34 ms | 101 ms | 134 ms | 0 |
+| 10^8  | 49,999,999     | 749 ms | 1,218 ms | 1,968 ms | 0 |
+| 10^9  | 499,999,999    | 8,696 ms | 13,873 ms | 22,659 ms | 0 |
 | 10^10 | 4,999,999,999  | 119,947 ms | 188,388 ms | 308,335 ms | 0 |
 
 ---
@@ -59,10 +60,9 @@ Sieve parallelized with OpenMP (20 threads, 1.7x speedup, memory-bandwidth limit
 
 | Limit | Even n checked | Sieve (CPU, OpenMP) | Kernel (GPU) | Total | Failures |
 |-------|----------------|---------------------|--------------|-------|----------|
-| 10^7  | 4,999,999      | 16 ms    | 6 ms     | 22 ms     | 0 |
-| 10^8  | 49,999,999     | 46 ms    | 75 ms    | 121 ms    | 0 |
-| 10^9  | 499,999,999    | 687 ms   | 698 ms   | 1,386 ms  | 0 |
-| 10^10 | 4,999,999,999  | 17,923 ms | 7,520 ms | 25,443 ms | 0 |
+| 10^8  | 49,999,999     | 46 ms    | 75 ms    | 126 ms    | 0 |
+| 10^9  | 499,999,999    | 687 ms   | 698 ms   | 1,344 ms  | 0 |
+| 10^10 | 4,999,999,999  | 17,923 ms | 7,520 ms | 25,034 ms | 0 |
 
 GPU speedup over CPU baseline (total vs total): 16x at 10^9, 12x at 10^10.
 At 10^8, kernel launch overhead causes GPU kernel time to exceed sieve time;
@@ -92,9 +92,10 @@ Verified buffer: 476 MB
 
 | Limit | Even n checked | GPU success | Phase 2 fallbacks | Total time | Failures |
 |-------|----------------|-------------|-------------------|------------|----------|
-| 10^9  | 499,999,999    | 100% | 0 | 3,979 ms      | 0 |
-| 10^10 | 4,999,999,999  | 100% | 0 | 41,320 ms     | 0 |
-| 10^11 | 49,999,999,999 | 100% | 0 | 488,478 ms    | 0 |
+| 10^8  | 49,999,999    | 100% | 0 | 240 ms      | 0 |
+| 10^9  | 499,999,999    | 100% | 0 | 3,595 ms      | 0 |
+| 10^10 | 4,999,999,999  | 100% | 0 | 42,656 ms     | 0 |
+| 10^11 | 49,999,999,999 | 100% | 0 | 497,427 ms    | 0 |
 | 10^12 | 499,999,999,999 | 100% | 0 | 5,760,350 ms | 0 |
 
 100% GPU success rate confirms p_min(n) <= 2,000,000 for all even n <= 10^12.
