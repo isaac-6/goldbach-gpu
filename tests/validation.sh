@@ -84,6 +84,30 @@ else
     exit 1
 fi
 
+# 7. Test VRAM Safety Guard (Negative Test)
+echo -n "Test 6: GPU VRAM Safety Guard... "
+# Request 1 Trillion segment size (~1 TB VRAM needed). Guaranteed to fail gracefully.
+VRAM_OUT=$("$BIN_DIR/goldbach_gpu3" 1000000 1000000000000 2>&1)
+if [[ $VRAM_OUT == *"[!] ERROR: SEG_SIZE"* ]]; then
+    echo -e "${GREEN}PASSED${NC}"
+else
+    echo -e "${RED}FAILED${NC}"
+    echo "Output was:"
+    echo "$VRAM_OUT"
+    exit 1
+fi
+
+# 8. Test Single Number Checker
+echo -n "Test 7: GPU Single Checker (10^12)... "
+SINGLE_OUT=$("$BIN_DIR/single_check" 1000000000000 2>&1)
+if [[ $SINGLE_OUT == *"Goldbach holds. ✓"* ]]; then
+    echo -e "${GREEN}PASSED${NC}"
+else
+    echo -e "${RED}FAILED${NC}"
+    echo "$SINGLE_OUT"
+    exit 1
+fi
+
 echo "===================================================="
 echo -e "${GREEN}SUCCESS: All verification tests passed!${NC}"
 echo "===================================================="
