@@ -140,19 +140,35 @@ void big_check(const std::string& n_str) {
 }
 
 int main(int argc, char* argv[]) {
-    if (argc < 2) {
-        std::cerr << "Usage: " << argv[0] << " <N>\n";
-        std::cerr << "Example: " << argv[0] << " 1000000000000000000000000000000\n";
-        return 1;
+    // 1. Help flag check
+    if (argc < 2 || std::string(argv[1]) == "-h" || std::string(argv[1]) == "--help") {
+        std::cout << "Arbitrary Precision Goldbach Checker (GMP)\n";
+        std::cout << "Usage: " << argv[0] << " <N>\n";
+        std::cout << "Example: " << argv[0] << " 1000000000000000000000000000000\n";
+        return 0;
     }
 
     std::string n_str = argv[1];
 
-    if ((n_str.back() - '0') % 2 != 0) {
-        std::cerr << "Warning: n is odd, using n-1 instead\n";
-        n_str.back() -= 1;
+    // 2. String validation: Ensure it is purely numeric
+    for (char c : n_str) {
+        if (!std::isdigit(c)) {
+            std::cerr << "Error: Input must be a positive integer.\n";
+            return 1;
+        }
     }
 
+    // 3. Fast Even/Odd Check (Check the last character)
+    int last_digit = n_str.back() - '0';
+    if (last_digit % 2 != 0) {
+        std::cerr << "Error: Goldbach's conjecture applies to even integers >= 4.\n";
+        std::cerr << "Input ends in '" << last_digit << "', which is odd.\n";
+        return 1;
+    }
+
+    // Note: The big_check() function already safely checks if n < 4 via GMP,
+    // so we can safely pass the validated string to it now.
     big_check(n_str);
+    
     return 0;
 }
