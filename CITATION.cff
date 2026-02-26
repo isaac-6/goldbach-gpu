@@ -1,0 +1,18 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+authors:
+  - family-names: "Llorente-Saguer"
+    given-names: "Isaac"
+    orcid: "https://orcid.org/0000-0002-7612-5331"
+title: "GoldbachGPU: An Open Source GPU-Accelerated Framework for Verification of Goldbach's Conjecture"
+version: 1.0.0
+date-released: 2026-02-26
+url: "https://github.com/isaac-6/goldbach-gpu"
+repository-code: "https://github.com/isaac-6/goldbach-gpu"
+license: MIT
+keywords:
+  - "number-theory"
+  - "goldbach-conjecture"
+  - "gpu-computing"
+  - "cuda"
+  - "gmp"
