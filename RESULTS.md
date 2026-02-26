@@ -1,12 +1,20 @@
 # Goldbach Verification Results Log
 
-All results produced on:
-- CPU: Intel i7-12700H, 20 logical threads, WSL2 Ubuntu 24.04
-- GPU: NVIDIA RTX 3070, 8 GB VRAM, 448 GB/s bandwidth
-- RAM: 32 GB
+All results were produced on the following fixed platform:
 
-All timings are wall-clock time. All configurations are recorded
-exactly as run so results are fully reproducible.
+| Component | Specification |
+|----------|---------------|
+| **CPU** | Intel i7‑12700H, 20 logical threads |
+| **GPU** | NVIDIA RTX 3070, 8 GB VRAM, 448 GB/s bandwidth |
+| **RAM** | 32 GB |
+| **OS** | WSL2, Ubuntu 24.04 |
+| **CUDA Toolkit** | 13.1.115 |
+| **CUDA Build Info** | cuda_13.1.r13.1/compiler.37061995_0 (Dec 16 2025) |
+| **GCC** | 13.3.0 (Ubuntu 13.3.0‑6ubuntu2~24.04.1) |
+| **OpenMP** | 4.5 |
+| **GMP** | 6.3.0+dfsg‑2ubuntu6.1 |
+
+All timings are wall‑clock time. All configurations are recorded exactly as run so results are fully reproducible.
 
 ---
 
