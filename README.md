@@ -1,6 +1,6 @@
 ![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)
 ![Language: C++](https://img.shields.io/badge/Language-C%2B%2B-blue.svg)
-![CUDA: 12.x](https://img.shields.io/badge/CUDA-12.x-green.svg)
+![CUDA: 13.1](https://img.shields.io/badge/CUDA-13.1-green.svg)
 
 # goldbach-gpu
 
@@ -56,7 +56,7 @@ against the previous:
 ### Design evolution
 
 **goldbach_gpu** stores primality as one byte per number. At 10⁹ this requires
-953 MB VRAM -- already approaching limits. Not usable beyond 10⁹.
+953 MB VRAM -- already approaching limits. Not usable beyond 10⁹ on 8 GB GPUs.
 
 **goldbach_gpu2** encodes one bit per odd number, a 16× memory reduction.
 This makes 10¹¹ feasible (5,960 MB) but 10¹² impossible (would need 59 GB).
@@ -86,8 +86,8 @@ Full benchmark log: [RESULTS.md](RESULTS.md)
 
 | Tool | Limit | Even n checked | Total time | Failures |
 |------|-------|----------------|------------|----------|
-| `goldbach` (CPU) | 10⁹ | 499,999,999 | 22,622 ms | 0 |
-| `goldbach` (CPU) | 10¹⁰ | 4,999,999,999 | 308,335 ms | 0 |
+| `cpu_goldbach` (CPU) | 10⁹ | 499,999,999 | 22,622 ms | 0 |
+| `cpu_goldbach` (CPU) | 10¹⁰ | 4,999,999,999 | 308,335 ms | 0 |
 | `goldbach_gpu2` | 10⁹ | 499,999,999 | 1,386 ms | 0 |
 | `goldbach_gpu2` | 10¹⁰ | 4,999,999,999 | 25,443 ms | 0 |
 | `goldbach_gpu3` | 10¹² | 499,999,999,999 | 5,760,350 ms | 0 |
@@ -190,7 +190,7 @@ All results were produced on the following fixed platform:
 | Component | Specification |
 |----------|---------------|
 | **CPU** | Intel i7‑12700H, 20 logical threads |
-| **GPU** | NVIDIA RTX 3070, 8 GB VRAM, 448 GB/s bandwidth |
+| **GPU** | NVIDIA RTX 3070 mobile, 8 GB VRAM, 448 GB/s bandwidth |
 | **RAM** | 32 GB |
 | **OS** | WSL2, Ubuntu 24.04 |
 | **CUDA Toolkit** | 13.1.115 |
