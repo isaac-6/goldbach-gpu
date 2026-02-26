@@ -9,7 +9,7 @@
 #include <vector>
 #include <iostream>
 #include <chrono>
-#include <climits>
+#include <string>
 #include "prime_bitset.hpp"
 
 using namespace goldbach;
@@ -23,6 +23,34 @@ using namespace goldbach;
             std::exit(1);                                                   \
         }                                                                   \
     } while (0)
+
+void print_usage(const char* prog) {
+    std::cout << "Goldbach Global Bitset Verifier (GPU)\n";
+    std::cout << "Usage: " << prog << " <LIMIT>\n";
+    std::cout << "  LIMIT       Max even integer to check (e.g., 1000000000)\n";
+    std::cout << "  -h, --help  Show this help message\n";
+}
+
+void check_global_vram(uint64_t limit) {
+    int device;
+    cudaGetDevice(&device);
+    cudaDeviceProp prop;
+    cudaGetDeviceProperties(&prop, device);
+
+    // gpu2 needs 1 bit per odd number up to LIMIT
+    uint64_t bitset_bytes = limit / 16; 
+    uint64_t required = bitset_bytes + (100ULL * 1024 * 1024); // +100MB CUDA context buffer
+
+    if (required > prop.totalGlobalMem) {
+        std::cerr << "\n[!] ERROR: LIMIT " << limit << " requires a global bitset of ~" 
+                  << bitset_bytes / (1024*1024) << " MB.\n";
+        std::cerr << "[!] This GPU (" << prop.name << ") only has " 
+                  << prop.totalGlobalMem / (1024*1024) << " MB available.\n";
+        std::cerr << "[!] SOLUTION: Use 'goldbach_gpu3' (segmented) for this range.\n";
+        std::exit(1);
+    }
+    std::cout << "[Hardware] GPU: " << prop.name << " (" << prop.totalGlobalMem / (1024*1024) << " MB VRAM)\n";
+}
 
 // -------------------------------------------------------
 // Device function: primality lookup in the compact bitset.
@@ -93,17 +121,29 @@ __global__ void goldbach_bitset_kernel(
 }
 
 int main(int argc, char** argv) {
-    // -------------------------------------------------------
-    // Parse LIMIT
-    // -------------------------------------------------------
-    if (argc < 2) {
-        std::cerr << "Usage: " << argv[0] << " <LIMIT>\n";
-        std::cerr << "Example: " << argv[0] << " 10000000000\n";
+    // 1. Help flag check
+    if (argc < 2 || std::string(argv[1]) == "-h" || std::string(argv[1]) == "--help") {
+        print_usage(argv[0]);
+        return 0;
+    }
+
+    // 2. Safe Parsing
+    uint64_t LIMIT;
+    try {
+        LIMIT = std::stoull(argv[1]);
+    } catch (...) {
+        std::cerr << "Error: Invalid numeric argument.\n";
         return 1;
     }
 
-    uint64_t LIMIT = std::stoull(argv[1]);
-    if (LIMIT % 2 != 0) LIMIT--; // ensure LIMIT is even
+    if (LIMIT < 4) {
+        std::cerr << "Error: LIMIT must be >= 4.\n";
+        return 1;
+    }
+    if (LIMIT % 2 != 0) LIMIT--; // Ensure even
+
+    // 3. VRAM Safety Check
+    check_global_vram(LIMIT);
     const uint64_t BATCH_SIZE = 100'000'000ULL;  // 10^8 per batch
 
     std::cout << "Goldbach range verifier (GPU bitset)\n";
