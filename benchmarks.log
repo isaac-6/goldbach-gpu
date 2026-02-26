@@ -1,0 +1,510 @@
+=== Benchmark run: Wed Feb 25 21:00:38 GMT 2026 ===
+
+--- CPU Baseline ---
+
+[CPU] N=1000000
+Building prime table up to 1000000...
+Sieve done in 1.6726 ms
+Checking Goldbach for all even n in [4, 1000000]...
+
+--- Summary ---
+Even numbers checked : 499999
+Failures found       : 0
+Sieve time           : 1.6726 ms
+Goldbach check time  : 8.0491 ms
+Total time           : 9.7217 ms
+
+All even numbers up to 1000000 satisfy Goldbach. ✓
+
+[CPU] N=10000000
+Building prime table up to 10000000...
+Sieve done in 30.2219 ms
+Checking Goldbach for all even n in [4, 10000000]...
+
+--- Summary ---
+Even numbers checked : 4999999
+Failures found       : 0
+Sieve time           : 30.2219 ms
+Goldbach check time  : 99.3844 ms
+Total time           : 129.606 ms
+
+All even numbers up to 10000000 satisfy Goldbach. ✓
+
+[CPU] N=100000000
+Building prime table up to 100000000...
+Sieve done in 1050.04 ms
+Checking Goldbach for all even n in [4, 100000000]...
+
+--- Summary ---
+Even numbers checked : 49999999
+Failures found       : 0
+Sieve time           : 1050.04 ms
+Goldbach check time  : 1335.19 ms
+Total time           : 2385.22 ms
+
+All even numbers up to 100000000 satisfy Goldbach. ✓
+
+[CPU] N=1000000000
+Building prime table up to 1000000000...
+Sieve done in 10368.7 ms
+Checking Goldbach for all even n in [4, 1000000000]...
+
+--- Summary ---
+Even numbers checked : 499999999
+Failures found       : 0
+Sieve time           : 10368.7 ms
+Goldbach check time  : 13636 ms
+Total time           : 24004.7 ms
+
+All even numbers up to 1000000000 satisfy Goldbach. ✓
+
+--- GPU2 (global bitset) ---
+
+[GPU2] N=100000000
+Goldbach range verifier (GPU bitset)
+Checking all even n in [4, 100000000]
+
+Building prime bitset up to 100000000...
+Bitset built in 35.9894 ms
+Bitset memory : 5 MB (vs 95 MB for byte array)
+
+Bitset copied to GPU (5 MB)
+
+Processing 49999999 even numbers in batches of 100000000...
+  Progress: 49999999 / 49999999 (100%)
+
+--- Summary ---
+Even numbers checked : 49999999
+Failures             : 0
+Sieve time  (CPU)    : 35.9894 ms
+Kernel time (GPU)    : 74.1324 ms
+Total time           : 110.122 ms
+
+All even numbers up to 100000000 satisfy Goldbach. ✓
+
+[GPU2] N=1000000000
+Goldbach range verifier (GPU bitset)
+Checking all even n in [4, 1000000000]
+
+Building prime bitset up to 1000000000...
+Bitset built in 726.502 ms
+Bitset memory : 59 MB (vs 953 MB for byte array)
+
+Bitset copied to GPU (59 MB)
+
+Processing 499999999 even numbers in batches of 100000000...
+  Progress: 100000000 / 499999999 (20%)  Progress: 200000000 / 499999999 (40%)  Progress: 300000000 / 499999999 (60%)  Progress: 400000000 / 499999999 (80%)  Progress: 499999999 / 499999999 (100%)
+
+--- Summary ---
+Even numbers checked : 499999999
+Failures             : 0
+Sieve time  (CPU)    : 726.502 ms
+Kernel time (GPU)    : 717.225 ms
+Total time           : 1443.73 ms
+
+All even numbers up to 1000000000 satisfy Goldbach. ✓
+
+--- GPU3 (segmented) ---
+
+[GPU3] N=100000000
+Goldbach segmented verifier (Phase 1: GPU, Phase 2: CPU)
+Checking all even n in [4, 100000000]
+P_SMALL = 2000000, exhaustive CPU fallback for any remainder
+
+Building small primes bitset up to 2000001...
+Built in 15.7402 ms (122 KB)
+
+GPU primes (p <= 2000000): 148934
+
+Small primes in GPU (122 KB)
+Segment buffer: 59 MB
+Verified buffer: 476 MB
+
+  Progress: 49999999 / 49999999 (100%)
+
+--- Summary ---
+Even numbers checked  : 49999999
+Failures              : 0
+Phase 2 fallbacks     : 0
+P_SMALL               : 2000000
+Total time            : 219.551 ms
+
+All even numbers up to 100000000 satisfy Goldbach. ✓
+(All verified by GPU with p <= 2000000)
+
+[GPU3] N=1000000000
+Goldbach segmented verifier (Phase 1: GPU, Phase 2: CPU)
+Checking all even n in [4, 1000000000]
+P_SMALL = 2000000, exhaustive CPU fallback for any remainder
+
+Building small primes bitset up to 2000001...
+Built in 14.9252 ms (122 KB)
+
+GPU primes (p <= 2000000): 148933
+
+Small primes in GPU (122 KB)
+Segment buffer: 59 MB
+Verified buffer: 476 MB
+
+  Progress: 499999999 / 499999999 (100%)
+
+--- Summary ---
+Even numbers checked  : 499999999
+Failures              : 0
+Phase 2 fallbacks     : 0
+P_SMALL               : 2000000
+Total time            : 4341.4 ms
+
+All even numbers up to 1000000000 satisfy Goldbach. ✓
+(All verified by GPU with p <= 2000000)
+
+=== Benchmark complete ===
+
+=== Benchmark run: Wed Feb 25 21:26:17 GMT 2026 ===
+
+--- CPU Baseline ---
+
+[CPU] N=1000000
+Building prime table up to 1000000...
+Sieve done in 1.3928 ms
+Checking Goldbach for all even n in [4, 1000000]...
+
+--- Summary ---
+Even numbers checked : 499999
+Failures found       : 0
+Sieve time           : 1.3928 ms
+Goldbach check time  : 8.61444 ms
+Total time           : 10.0072 ms
+
+All even numbers up to 1000000 satisfy Goldbach. ✓
+
+[CPU] N=10000000
+Building prime table up to 10000000...
+Sieve done in 29.8242 ms
+Checking Goldbach for all even n in [4, 10000000]...
+
+--- Summary ---
+Even numbers checked : 4999999
+Failures found       : 0
+Sieve time           : 29.8242 ms
+Goldbach check time  : 97.5188 ms
+Total time           : 127.343 ms
+
+All even numbers up to 10000000 satisfy Goldbach. ✓
+
+[CPU] N=100000000
+Building prime table up to 100000000...
+Sieve done in 723.391 ms
+Checking Goldbach for all even n in [4, 100000000]...
+
+--- Summary ---
+Even numbers checked : 49999999
+Failures found       : 0
+Sieve time           : 723.391 ms
+Goldbach check time  : 1140.81 ms
+Total time           : 1864.2 ms
+
+All even numbers up to 100000000 satisfy Goldbach. ✓
+
+[CPU] N=1000000000
+Building prime table up to 1000000000...
+Sieve done in 8889.23 ms
+Checking Goldbach for all even n in [4, 1000000000]...
+
+--- Summary ---
+Even numbers checked : 499999999
+Failures found       : 0
+Sieve time           : 8889.23 ms
+Goldbach check time  : 13447.1 ms
+Total time           : 22336.4 ms
+
+All even numbers up to 1000000000 satisfy Goldbach. ✓
+
+--- GPU2 (global bitset) ---
+
+[GPU2] N=100000000
+Goldbach range verifier (GPU bitset)
+Checking all even n in [4, 100000000]
+
+Building prime bitset up to 100000000...
+Bitset built in 36.9818 ms
+Bitset memory : 5 MB (vs 95 MB for byte array)
+
+Bitset copied to GPU (5 MB)
+
+Processing 49999999 even numbers in batches of 100000000...
+  Progress: 49999999 / 49999999 (100%)
+
+--- Summary ---
+Even numbers checked : 49999999
+Failures             : 0
+Sieve time  (CPU)    : 36.9818 ms
+Kernel time (GPU)    : 74.2127 ms
+Total time           : 111.195 ms
+
+All even numbers up to 100000000 satisfy Goldbach. ✓
+
+[GPU2] N=1000000000
+Goldbach range verifier (GPU bitset)
+Checking all even n in [4, 1000000000]
+
+Building prime bitset up to 1000000000...
+Bitset built in 622.309 ms
+Bitset memory : 59 MB (vs 953 MB for byte array)
+
+Bitset copied to GPU (59 MB)
+
+Processing 499999999 even numbers in batches of 100000000...
+  Progress: 100000000 / 499999999 (20%)  Progress: 200000000 / 499999999 (40%)  Progress: 300000000 / 499999999 (60%)  Progress: 400000000 / 499999999 (80%)  Progress: 499999999 / 499999999 (100%)
+
+--- Summary ---
+Even numbers checked : 499999999
+Failures             : 0
+Sieve time  (CPU)    : 622.309 ms
+Kernel time (GPU)    : 694.088 ms
+Total time           : 1316.4 ms
+
+All even numbers up to 1000000000 satisfy Goldbach. ✓
+
+[GPU2] N=10000000000
+Goldbach range verifier (GPU bitset)
+Checking all even n in [4, 10000000000]
+
+Building prime bitset up to 10000000000...
+Bitset built in 17513 ms
+Bitset memory : 596 MB (vs 9536 MB for byte array)
+
+Bitset copied to GPU (596 MB)
+
+Processing 4999999999 even numbers in batches of 100000000...
+  Progress: 100000000 / 4999999999 (2%)  Progress: 200000000 / 4999999999 (4%)  Progress: 300000000 / 4999999999 (6%)  Progress: 400000000 / 4999999999 (8%)  Progress: 500000000 / 4999999999 (10%)  Progress: 600000000 / 4999999999 (12%)  Progress: 700000000 / 4999999999 (14%)  Progress: 800000000 / 4999999999 (16%)  Progress: 900000000 / 4999999999 (18%)  Progress: 1000000000 / 4999999999 (20%)  Progress: 1100000000 / 4999999999 (22%)  Progress: 1200000000 / 4999999999 (24%)  Progress: 1300000000 / 4999999999 (26%)  Progress: 1400000000 / 4999999999 (28%)  Progress: 1500000000 / 4999999999 (30%)  Progress: 1600000000 / 4999999999 (32%)  Progress: 1700000000 / 4999999999 (34%)  Progress: 1800000000 / 4999999999 (36%)  Progress: 1900000000 / 4999999999 (38%)  Progress: 2000000000 / 4999999999 (40%)  Progress: 2100000000 / 4999999999 (42%)  Progress: 2200000000 / 4999999999 (44%)  Progress: 2300000000 / 4999999999 (46%)  Progress: 2400000000 / 4999999999 (48%)  Progress: 2500000000 / 4999999999 (50%)  Progress: 2600000000 / 4999999999 (52%)  Progress: 2700000000 / 4999999999 (54%)  Progress: 2800000000 / 4999999999 (56%)  Progress: 2900000000 / 4999999999 (58%)  Progress: 3000000000 / 4999999999 (60%)  Progress: 3100000000 / 4999999999 (62%)  Progress: 3200000000 / 4999999999 (64%)  Progress: 3300000000 / 4999999999 (66%)  Progress: 3400000000 / 4999999999 (68%)  Progress: 3500000000 / 4999999999 (70%)  Progress: 3600000000 / 4999999999 (72%)  Progress: 3700000000 / 4999999999 (74%)  Progress: 3800000000 / 4999999999 (76%)  Progress: 3900000000 / 4999999999 (78%)  Progress: 4000000000 / 4999999999 (80%)  Progress: 4100000000 / 4999999999 (82%)  Progress: 4200000000 / 4999999999 (84%)  Progress: 4300000000 / 4999999999 (86%)  Progress: 4400000000 / 4999999999 (88%)  Progress: 4500000000 / 4999999999 (90%)  Progress: 4600000000 / 4999999999 (92%)  Progress: 4700000000 / 4999999999 (94%)  Progress: 4800000000 / 4999999999 (96%)  Progress: 4900000000 / 4999999999 (98%)  Progress: 4999999999 / 4999999999 (100%)
+
+--- Summary ---
+Even numbers checked : 4999999999
+Failures             : 0
+Sieve time  (CPU)    : 17513 ms
+Kernel time (GPU)    : 7536.39 ms
+Total time           : 25049.4 ms
+
+All even numbers up to 10000000000 satisfy Goldbach. ✓
+
+--- GPU3 (segmented) ---
+
+[GPU3] N=100000000
+Goldbach segmented verifier (Phase 1: GPU, Phase 2: CPU)
+Checking all even n in [4, 100000000]
+P_SMALL = 2000000, exhaustive CPU fallback for any remainder
+
+Building small primes bitset up to 2000001...
+Built in 22.9436 ms (122 KB)
+
+GPU primes (p <= 2000000): 148933
+
+Small primes in GPU (122 KB)
+Segment buffer: 59 MB
+Verified buffer: 476 MB
+
+  Progress: 49999999 / 49999999 (100%)
+
+--- Summary ---
+Even numbers checked  : 49999999
+Failures              : 0
+Phase 2 fallbacks     : 0
+P_SMALL               : 2000000
+Total time            : 235.311 ms
+
+All even numbers up to 100000000 satisfy Goldbach. ✓
+(All verified by GPU with p <= 2000000)
+
+[GPU3] N=1000000000
+Goldbach segmented verifier (Phase 1: GPU, Phase 2: CPU)
+Checking all even n in [4, 1000000000]
+P_SMALL = 2000000, exhaustive CPU fallback for any remainder
+
+Building small primes bitset up to 2000001...
+Built in 24.454 ms (122 KB)
+
+GPU primes (p <= 2000000): 148933
+
+Small primes in GPU (122 KB)
+Segment buffer: 59 MB
+Verified buffer: 476 MB
+
+  Progress: 499999999 / 499999999 (100%)
+
+--- Summary ---
+Even numbers checked  : 499999999
+Failures              : 0
+Phase 2 fallbacks     : 0
+P_SMALL               : 2000000
+Total time            : 3549.72 ms
+
+All even numbers up to 1000000000 satisfy Goldbach. ✓
+(All verified by GPU with p <= 2000000)
+
+[GPU3] N=10000000000
+Goldbach segmented verifier (Phase 1: GPU, Phase 2: CPU)
+Checking all even n in [4, 10000000000]
+P_SMALL = 2000000, exhaustive CPU fallback for any remainder
+
+Building small primes bitset up to 2000001...
+Built in 11.0017 ms (122 KB)
+
+GPU primes (p <= 2000000): 148933
+
+Small primes in GPU (122 KB)
+Segment buffer: 59 MB
+Verified buffer: 476 MB
+
+  Progress: 500000000 / 4999999999 (10%)  Progress: 1000000000 / 4999999999 (20%)  Progress: 1500000000 / 4999999999 (30%)  Progress: 2000000000 / 4999999999 (40%)  Progress: 2500000000 / 4999999999 (50%)  Progress: 3000000000 / 4999999999 (60%)  Progress: 3500000000 / 4999999999 (70%)  Progress: 4000000000 / 4999999999 (80%)  Progress: 4500000000 / 4999999999 (90%)  Progress: 4999999999 / 4999999999 (100%)
+
+--- Summary ---
+Even numbers checked  : 4999999999
+Failures              : 0
+Phase 2 fallbacks     : 0
+P_SMALL               : 2000000
+Total time            : 41993.5 ms
+
+All even numbers up to 10000000000 satisfy Goldbach. ✓
+(All verified by GPU with p <= 2000000)
+
+=== Benchmark complete ===
+
+=== Benchmark run: Thu Feb 26 09:44:12 GMT 2026 ===
+
+--- CPU Baseline ---
+
+[CPU] N=100000000
+Building prime table up to 100000000...
+Sieve done in 802.145 ms
+Checking Goldbach for all even n in [4, 100000000]...
+
+--- Summary ---
+Even numbers checked : 49999999
+Failures found       : 0
+Sieve time           : 802.145 ms
+Goldbach check time  : 1123.52 ms
+Total time           : 1925.66 ms
+
+All even numbers up to 100000000 satisfy Goldbach. ✓
+
+[CPU] N=1000000000
+Building prime table up to 1000000000...
+Sieve done in 9202.13 ms
+Checking Goldbach for all even n in [4, 1000000000]...
+
+--- Summary ---
+Even numbers checked : 499999999
+Failures found       : 0
+Sieve time           : 9202.13 ms
+Goldbach check time  : 13038.5 ms
+Total time           : 22240.6 ms
+
+All even numbers up to 1000000000 satisfy Goldbach. ✓
+
+--- GPU2 (global bitset) ---
+
+[GPU2] N=100000000
+[Hardware] GPU: NVIDIA GeForce RTX 3070 Laptop GPU (8191 MB VRAM)
+Goldbach range verifier (GPU bitset)
+Checking all even n in [4, 100000000]
+
+Building prime bitset up to 100000000...
+Bitset built in 48.6113 ms
+Bitset memory : 5 MB (vs 95 MB for byte array)
+
+Bitset copied to GPU (5 MB)
+
+Processing 49999999 even numbers in batches of 100000000...
+  Progress: 49999999 / 49999999 (100%)
+
+--- Summary ---
+Even numbers checked : 49999999
+Failures             : 0
+Sieve time  (CPU)    : 48.6113 ms
+Kernel time (GPU)    : 73.6729 ms
+Total time           : 122.284 ms
+
+All even numbers up to 100000000 satisfy Goldbach. ✓
+
+[GPU2] N=1000000000
+[Hardware] GPU: NVIDIA GeForce RTX 3070 Laptop GPU (8191 MB VRAM)
+Goldbach range verifier (GPU bitset)
+Checking all even n in [4, 1000000000]
+
+Building prime bitset up to 1000000000...
+Bitset built in 634.833 ms
+Bitset memory : 59 MB (vs 953 MB for byte array)
+
+Bitset copied to GPU (59 MB)
+
+Processing 499999999 even numbers in batches of 100000000...
+  Progress: 100000000 / 499999999 (20%)  Progress: 200000000 / 499999999 (40%)  Progress: 300000000 / 499999999 (60%)  Progress: 400000000 / 499999999 (80%)  Progress: 499999999 / 499999999 (100%)
+
+--- Summary ---
+Even numbers checked : 499999999
+Failures             : 0
+Sieve time  (CPU)    : 634.833 ms
+Kernel time (GPU)    : 713.615 ms
+Total time           : 1348.45 ms
+
+All even numbers up to 1000000000 satisfy Goldbach. ✓
+
+--- GPU3 (segmented) ---
+
+[GPU3] N=100000000
+[Hardware] GPU: NVIDIA GeForce RTX 3070 Laptop GPU (8191 MB VRAM)
+Goldbach segmented verifier (Phase 1: GPU, Phase 2: CPU)
+Checking all even n in [4, 100000000]
+P_SMALL = 2000000, exhaustive CPU fallback for any remainder
+
+Building small primes bitset up to 2000001...
+Built in 31.5564 ms (122 KB)
+
+GPU primes (p <= 2000000): 148933
+
+Small primes in GPU (122 KB)
+Segment buffer: 59 MB
+Verified buffer: 476 MB
+
+  Progress: 49999999 / 49999999 (100%)
+
+--- Summary ---
+Even numbers checked  : 49999999
+Failures              : 0
+Phase 2 fallbacks     : 0
+P_SMALL               : 2000000
+Total time            : 228.317 ms
+
+All even numbers up to 100000000 satisfy Goldbach. ✓
+(All verified by GPU with p <= 2000000)
+
+[GPU3] N=1000000000
+[Hardware] GPU: NVIDIA GeForce RTX 3070 Laptop GPU (8191 MB VRAM)
+Goldbach segmented verifier (Phase 1: GPU, Phase 2: CPU)
+Checking all even n in [4, 1000000000]
+P_SMALL = 2000000, exhaustive CPU fallback for any remainder
+
+Building small primes bitset up to 2000001...
+Built in 19.0648 ms (122 KB)
+
+GPU primes (p <= 2000000): 148933
+
+Small primes in GPU (122 KB)
+Segment buffer: 59 MB
+Verified buffer: 476 MB
+
+  Progress: 499999999 / 499999999 (100%)
+
+--- Summary ---
+Even numbers checked  : 499999999
+Failures              : 0
+Phase 2 fallbacks     : 0
+P_SMALL               : 2000000
+Total time            : 3614.98 ms
+
+All even numbers up to 1000000000 satisfy Goldbach. ✓
+(All verified by GPU with p <= 2000000)
+
+=== Benchmark complete ===
+
