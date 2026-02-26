@@ -35,30 +35,51 @@ uint64_t goldbach_count(uint64_t n, const std::vector<char>& is_prime) {
     return count;
 }
 
+void print_usage(const char* prog) {
+    std::cout << "Goldbach Sequential CPU Oracle\n";
+    std::cout << "Usage: " << prog << " <LIMIT>\n";
+    std::cout << "  LIMIT       Max even integer to check (e.g., 100000000)\n";
+    std::cout << "  -h, --help  Show this help message\n";
+}
+
 int main(int argc, char** argv) {
-    // -------------------------------------------------------
-    // Parse command-line argument: LIMIT
-    // -------------------------------------------------------
-    if (argc < 2) {
-        std::cerr << "Usage: " << argv[0] << " <LIMIT>\n";
-        std::cerr << "Example: " << argv[0] << " 1000000000\n";
+    // 1. Help flag check
+    if (argc < 2 || std::string(argv[1]) == "-h" || std::string(argv[1]) == "--help") {
+        print_usage(argv[0]);
+        return 0;
+    }
+
+    // 2. Safe Parsing
+    uint64_t LIMIT;
+    try {
+        LIMIT = std::stoull(argv[1]);
+    } catch (...) {
+        std::cerr << "Error: Invalid numeric argument.\n";
         return 1;
     }
 
-    uint64_t LIMIT = std::stoull(argv[1]);
-    if (LIMIT % 2 != 0) LIMIT--; // ensure LIMIT is even
+    if (LIMIT < 4) {
+        std::cerr << "Error: LIMIT must be >= 4.\n";
+        return 1;
+    }
+    if (LIMIT % 2 != 0) LIMIT--;
 
-    const bool PRINT_COUNTS = false;    // set true to print c(n) for every n
-    const bool STOP_ON_FAIL = true;     // stop immediately if Goldbach fails
+    const bool PRINT_COUNTS = false;
+    const bool STOP_ON_FAIL = true;
 
     std::cout << "Building prime table up to " << LIMIT << "...\n";
-
-    // Time the sieve
     auto t0 = std::chrono::high_resolution_clock::now();
 
-    // Build full primality lookup for [0, LIMIT]
-    // is_prime[k] == 1 iff k is prime
-    auto is_prime = segmented_sieve(0, LIMIT);
+    // 3. System RAM Safety Check (try-catch for massive allocations)
+    std::vector<char> is_prime;
+    try {
+        is_prime = segmented_sieve(0, LIMIT);
+    } catch (const std::bad_alloc& e) {
+        std::cerr << "\n[!] ERROR: System RAM exhausted.\n";
+        std::cerr << "[!] A limit of " << LIMIT << " requires ~" << LIMIT / (1024*1024*1024) << " GB of RAM for the CPU byte-array.\n";
+        std::cerr << "[!] SOLUTION: Use 'goldbach_gpu3' to bypass memory limits using bitsets and segments.\n";
+        return 1;
+    }
 
     auto t1 = std::chrono::high_resolution_clock::now();
     double sieve_ms = std::chrono::duration<double, std::milli>(t1 - t0).count();
