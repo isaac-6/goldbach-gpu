@@ -46,6 +46,7 @@ int main(int argc, char** argv) {
     }
 
     uint64_t LIMIT = std::stoull(argv[1]);
+    if (LIMIT % 2 != 0) LIMIT--; // ensure LIMIT is even
 
     const bool PRINT_COUNTS = false;    // set true to print c(n) for every n
     const bool STOP_ON_FAIL = true;     // stop immediately if Goldbach fails

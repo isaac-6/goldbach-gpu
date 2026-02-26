@@ -281,14 +281,39 @@ void check_single(uint64_t n) {
     CUDA_CHECK(cudaFree(d_q_out));
 }
 
-int main(int argc, char* argv[]) {
-    if (argc < 2) {
-        std::cerr << "Usage: " << argv[0] << " <N>\n";
-        std::cerr << "Example: " << argv[0] << " 1000000000000\n";
+int main(int argc, char** argv) {
+    // 1. Help flag check
+    if (argc < 2 || std::string(argv[1]) == "-h" || std::string(argv[1]) == "--help") {
+        std::cout << "GPU Single Number Goldbach Checker\n";
+        std::cout << "Usage: " << argv[0] << " <N>\n";
+        std::cout << "Example: " << argv[0] << " 1000000000000\n";
+        return 0;
+    }
+
+    // 2. Safe Parsing to uint64_t
+    uint64_t n;
+    try {
+        n = std::stoull(argv[1]);
+    } catch (const std::out_of_range& e) {
+        std::cerr << "Error: Number is too large for 64-bit unsigned integer.\n";
+        std::cerr << "Use 'big_check' for numbers > 1.84 x 10^19.\n";
+        return 1;
+    } catch (const std::exception& e) {
+        std::cerr << "Error: Invalid numeric argument.\n";
         return 1;
     }
 
-    uint64_t n = std::stoull(argv[1]);
+    // 3. Mathematical Safeguards
+    if (n < 4) {
+        std::cerr << "Error: n must be >= 4.\n";
+        return 1;
+    }
+    if (n % 2 != 0) {
+        std::cerr << "Error: n must be an even integer.\n";
+        return 1;
+    }
+
+    std::cout << "Checking Goldbach for n = " << n << "...\n";
     check_single(n);
     return 0;
 }

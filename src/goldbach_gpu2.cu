@@ -103,6 +103,7 @@ int main(int argc, char** argv) {
     }
 
     uint64_t LIMIT = std::stoull(argv[1]);
+    if (LIMIT % 2 != 0) LIMIT--; // ensure LIMIT is even
     const uint64_t BATCH_SIZE = 100'000'000ULL;  // 10^8 per batch
 
     std::cout << "Goldbach range verifier (GPU bitset)\n";
