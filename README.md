@@ -92,13 +92,13 @@ Full benchmark log: [RESULTS.md](RESULTS.md)
 
 | Tool | Limit | Even n checked | Total time | Failures |
 |------|-------|----------------|------------|----------|
-| `cpu_goldbach` (CPU) | 10⁹ | 499,999,999 | 22,622 ms | 0 |
+| `cpu_goldbach` (CPU) | 10⁹ | 499,999,999 | 22,568 ms | 0 |
 | `cpu_goldbach` (CPU) | 10¹⁰ | 4,999,999,999 | 308,335 ms | 0 |
-| `goldbach_gpu2` | 10⁹ | 499,999,999 | 1,386 ms | 0 |
-| `goldbach_gpu2` | 10¹⁰ | 4,999,999,999 | 25,443 ms | 0 |
+| `goldbach_gpu2` | 10⁹ | 499,999,999 | 1,344 ms | 0 |
+| `goldbach_gpu2` | 10¹⁰ | 4,999,999,999 | 25,034 ms | 0 |
 | `goldbach_gpu3` | 10¹² | 499,999,999,999 | 5,760,350 ms | 0 |
 
-GPU speedup over CPU baseline: **16× total at 10⁹, 12× at 10¹⁰**.
+GPU speedup over CPU baseline: **16× total at 10⁹**.
 goldbach_gpu3 reaches 10¹² which no single-GPU implementation can reach
 with a global bitset design on 8 GB VRAM.
 
@@ -148,7 +148,7 @@ Expected time: ~23 s at 10⁹, ~5 min at 10¹⁰.
 ./build/bin/goldbach_gpu2 10000000000
 ```
 Requires VRAM ≥ N/16 bytes. Hardware VRAM is automatically checked at launch. 
-Expected time: ~1.4 s at 10⁹, ~25 s at 10¹⁰.
+Expected time: ~1.3 s at 10⁹, ~25 s at 10¹⁰.
 
 ### GPU segmented verifier (recommended for 10¹¹ and beyond)
 ```bash
