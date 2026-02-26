@@ -230,21 +230,96 @@ static std::vector<uint64_t> build_segment_bitset(
     return words;
 }
 
+void print_usage(const char* prog) {
+    std::cout << "Goldbach Conjecture Segmented Verifier (GPU)\n";
+    std::cout << "Usage: " << prog << " <LIMIT> [SEG_SIZE] [P_SMALL]\n\n";
+    std::cout << "Arguments:\n";
+    std::cout << "  LIMIT     Max even integer to check (e.g., 1000000000)\n";
+    std::cout << "  SEG_SIZE  (Optional) Even integers per segment. Default: 500,000,000\n";
+    std::cout << "  P_SMALL   (Optional) GPU prime search bound. Default: 2,000,000\n\n";
+    std::cout << "Flags:\n";
+    std::cout << "  -h, --help  Show this help message\n";
+}
+
+void check_vram_limit(uint64_t seg_size, uint64_t small_bytes) {
+    int device;
+    cudaGetDevice(&device);
+    cudaDeviceProp prop;
+    cudaGetDeviceProperties(&prop, device);
+
+    uint64_t verified_bytes = seg_size;
+    uint64_t segment_bitset_bytes = (seg_size + 1) / 8;
+    uint64_t p_batch_bytes = 100000ULL * sizeof(uint64_t);
+
+    uint64_t total_required =
+        verified_bytes +
+        segment_bitset_bytes +
+        p_batch_bytes +
+        small_bytes +
+        (50ULL * 1024 * 1024); // 50 MB safety margin
+
+    if (total_required > prop.totalGlobalMem) {
+        std::cerr << "\n[!] ERROR: SEG_SIZE (" << seg_size << ") requires approx "
+                  << total_required / (1024*1024) << " MB VRAM.\n";
+        std::cerr << "[!] This GPU (" << prop.name << ") only has "
+                  << prop.totalGlobalMem / (1024*1024) << " MB available.\n";
+        std::cerr << "[!] Reduce SEG_SIZE or use a smaller LIMIT.\n";
+        std::exit(1);
+    }
+
+    std::cout << "[Hardware] GPU: " << prop.name
+              << " (" << prop.totalGlobalMem / (1024*1024) << " MB VRAM)\n";
+}
+
+// int main(int argc, char** argv) {
+//     // -------------------------------------------------------
+//     // Parse command-line argument: LIMIT
+//     // -------------------------------------------------------
+//     if (argc < 2) {
+//         std::cerr << "Usage: " << argv[0] << " <LIMIT>\n";
+//         std::cerr << "Example: " << argv[0] << " 1000000000\n";
+//         return 1;
+//     }
+
+//     uint64_t LIMIT = std::stoull(argv[1]);
+
 int main(int argc, char** argv) {
-    // -------------------------------------------------------
-    // Parse command-line argument: LIMIT
-    // -------------------------------------------------------
-    if (argc < 2) {
-        std::cerr << "Usage: " << argv[0] << " <LIMIT>\n";
-        std::cerr << "Example: " << argv[0] << " 1000000000\n";
+    if (argc < 2 ||
+        std::string(argv[1]) == "-h" ||
+        std::string(argv[1]) == "--help") {
+        print_usage(argv[0]);
+        return 0;
+    }
+
+    uint64_t LIMIT, SEG_SIZE, P_SMALL;
+
+    try {
+        LIMIT    = std::stoull(argv[1]);
+        SEG_SIZE = (argc > 2) ? std::stoull(argv[2]) : 500'000'000ULL;
+        P_SMALL  = (argc > 3) ? std::stoull(argv[3]) : 2'000'000ULL;
+    } catch (...) {
+        std::cerr << "Error: Invalid numeric argument. Use -h for help.\n";
         return 1;
     }
 
-    uint64_t LIMIT = std::stoull(argv[1]);
+    if (LIMIT < 4) {
+        std::cerr << "Error: LIMIT must be >= 4.\n";
+        return 1;
+    }
 
-    // Default parameters (can also be made CLI options later)
-    const uint64_t SEG_SIZE = 500'000'000ULL;   // even numbers per segment
-    const uint64_t P_SMALL  = 2'000'000ULL;     // GPU checks p <= 2e6
+    if (LIMIT % 2 != 0) LIMIT--;
+
+    // Calculate small_high
+    uint64_t small_high = std::max((uint64_t)std::sqrt((double)LIMIT) + 1, P_SMALL);
+    if (small_high % 2 == 0) small_high++;
+
+    // Calculate exact bytes needed for the small primes bitset
+    uint64_t num_small_odds = (small_high - 3) / 2 + 1;
+    uint64_t small_bytes = ((num_small_odds + 63) / 64) * sizeof(uint64_t);
+
+    // Pass small_bytes into check function
+    check_vram_limit(SEG_SIZE, small_bytes);
+
     const uint64_t P_BATCH  = 100'000ULL;       // primes per kernel launch
 
     std::cout << "Goldbach segmented verifier (Phase 1: GPU, Phase 2: CPU)\n";
@@ -257,10 +332,6 @@ int main(int argc, char** argv) {
     // Cover both sqrt(LIMIT) for segment sieve
     // and P_SMALL for GPU primality lookups
     // -------------------------------------------------------
-    uint64_t small_high = std::max(
-        (uint64_t)std::sqrt((double)LIMIT) + 1,
-        P_SMALL);
-    if (small_high % 2 == 0) small_high++;
 
     std::cout << "Building small primes bitset up to "
               << small_high << "...\n";
@@ -292,7 +363,7 @@ int main(int argc, char** argv) {
     // -------------------------------------------------------
     // Step 2: Copy small primes bitset to GPU -- permanent
     // -------------------------------------------------------
-    uint64_t small_bytes = small_bitset.word_count() * sizeof(uint64_t);
+    small_bytes = small_bitset.word_count() * sizeof(uint64_t);
     uint64_t* d_small = nullptr;
     CUDA_CHECK(cudaMalloc(&d_small, small_bytes));
     CUDA_CHECK(cudaMemcpy(d_small, small_bitset.data(), small_bytes,
@@ -306,14 +377,13 @@ int main(int argc, char** argv) {
     // d_seg: segment prime bitset
     //   odd range is [seg_start-1, seg_end+1]
     //   width ~ 2*SEG_SIZE, so SEG_SIZE+1 odd numbers
-    //   FIX: seg_odd_count = SEG_SIZE + 1, not SEG_SIZE/2 + 1
     //
     // d_verified: one byte per even n in segment
     //   max size = SEG_SIZE
     //
     // d_p_batch: current prime batch
     // -------------------------------------------------------
-    uint64_t seg_odd_count = SEG_SIZE + 1;  // FIX: was SEG_SIZE/2+1
+    uint64_t seg_odd_count = SEG_SIZE + 1;
     uint64_t seg_words     = (seg_odd_count + 63) / 64;
     uint64_t seg_bytes     = seg_words * sizeof(uint64_t);
 
@@ -387,6 +457,8 @@ int main(int argc, char** argv) {
                 seg_start, seg_even_count,
                 d_p_batch, bsize,
                 d_verified);
+            
+            CUDA_CHECK(cudaGetLastError());
 
             CUDA_CHECK(cudaDeviceSynchronize());
         }
