@@ -1,4 +1,4 @@
-[![DOI](https://zenodo.org/badge/1162873542.svg)](https://doi.org/10.5281/zenodo.18786329)
+[![DOI](https://zenodo.org/badge/1162873542.svg)](https://doi.org/10.5281/zenodo.18786328)
 ![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)
 ![Language: C++](https://img.shields.io/badge/Language-C%2B%2B-blue.svg)
 ![CUDA: 13.1](https://img.shields.io/badge/CUDA-13.1-green.svg)
@@ -244,7 +244,7 @@ If you use this work, please cite:
 
 ```
 Llorente-Saguer, I. (2026). GoldbachGPU (v1.0.0) [Software]. Zenodo.
-https://doi.org/10.5281/zenodo.18786328
+https://doi.org/10.5281/zenodo.18788222
 ```
 
 A preprint will be submitted to arXiv shortly.
