@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.18)
 project(GoldbachGPU LANGUAGES CXX CUDA)
 
 # --- Options ---
-option(BUILD_LEGACY "Build legacy GPU verifiers (gpu, gpu2)" ON)
+option(BUILD_LEGACY "Build legacy GPU verifiers (gpu)" OFF)
 
 # --- Global Settings ---
 set(CMAKE_CXX_STANDARD 17)
@@ -16,7 +16,7 @@ set(CMAKE_CUDA_FLAGS_RELEASE "${CMAKE_CUDA_FLAGS_RELEASE} -O3 -Xcompiler=-Wall,-
 
 # Target Architecture for RTX 3070 (Compute Capability 8.6)
 # Use "all" or specific "8.6"
-set(CMAKE_CUDA_ARCHITECTURES 86)
+set(CMAKE_CUDA_ARCHITECTURES 86-real)
 
 # --- Dependencies ---
 find_package(OpenMP REQUIRED)
