@@ -18,11 +18,16 @@ hardware. **No counterexamples have been found in any computation.**
 ---
 
 ## Headline result
-Figure shows times to check all even numbers up to N.
-<img width="2814" height="1132" alt="image" src="https://github.com/user-attachments/assets/91c4da61-11fb-40d7-ae1b-5fb756d836e0" />
+The following figure shows total wall‑clock time to verify all even integers up to \(N\) using the three main implementations:
+
+- **CPU baseline** (`cpu_goldbach`)
+- **GPU global bitset** (`goldbach_gpu2`)
+- **GPU segmented verifier** (`goldbach_gpu3`)
+
+![Performance comparison of CPU, goldbach_gpu2, and goldbach_gpu3](assets/performance_plot.png)
 
 > **All even integers up to 10¹² verified on a single NVIDIA RTX 3070 (8 GB VRAM)
-> in 96 minutes. Zero failures. Zero fallbacks.**
+> in 96 minutes with zero failures and zero fallbacks.**
 
 This is achieved by `goldbach_gpu3`, a segmented double-sieve verifier that
 removes the VRAM ceiling of earlier designs. See [Architecture](#architecture)
