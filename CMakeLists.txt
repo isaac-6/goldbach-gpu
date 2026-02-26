@@ -43,9 +43,13 @@ target_link_libraries(goldbach_lib PUBLIC OpenMP::OpenMP_CXX)
 
 # --- Executables ---
 
-# 1. Flagship Segmented Verifier
+# 0. Flagship Segmented Verifier
 add_executable(goldbach_gpu3 src/goldbach_gpu3.cu)
 target_link_libraries(goldbach_gpu3 PRIVATE goldbach_lib)
+
+# 1. Global Bitset Verifier (Baseline)
+add_executable(goldbach_gpu2 src/goldbach_gpu2.cu)
+target_link_libraries(goldbach_gpu2 PRIVATE goldbach_lib)
 
 # 2. Arbitrary Precision Checker (Requires GMP)
 add_executable(big_check src/big_check.cpp)
@@ -61,7 +65,7 @@ target_link_libraries(cpu_goldbach PRIVATE goldbach_lib OpenMP::OpenMP_CXX)
 
 # --- Installation/Output ---
 # (Optional) Set output directory to a bin folder
-set_target_properties(goldbach_gpu3 big_check single_check cpu_goldbach 
+set_target_properties(goldbach_gpu3 goldbach_gpu2 big_check single_check cpu_goldbach 
     PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 
 # --- Legacy Tools (optional) ---
@@ -71,10 +75,5 @@ if(BUILD_LEGACY)
     add_executable(goldbach_gpu legacy/goldbach_gpu.cu)
     target_link_libraries(goldbach_gpu PRIVATE goldbach_lib)
     set_target_properties(goldbach_gpu PROPERTIES 
-        RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin/legacy")
-
-    add_executable(goldbach_gpu2 legacy/goldbach_gpu2.cu)
-    target_link_libraries(goldbach_gpu2 PRIVATE goldbach_lib)
-    set_target_properties(goldbach_gpu2 PROPERTIES 
         RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin/legacy")
 endif()
