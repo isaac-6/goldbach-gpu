@@ -5,8 +5,9 @@ authors:
     given-names: "Isaac"
     orcid: "https://orcid.org/0000-0002-7612-5331"
 title: "GoldbachGPU: An Open Source GPU-Accelerated Framework for Verification of Goldbach's Conjecture"
-version: 1.0.0
+version: "1.0.0"
 date-released: 2026-02-26
+doi: "10.5281/zenodo.18786328"
 url: "https://github.com/isaac-6/goldbach-gpu"
 repository-code: "https://github.com/isaac-6/goldbach-gpu"
 license: MIT
@@ -16,3 +17,16 @@ keywords:
   - "gpu-computing"
   - "cuda"
   - "gmp"
+
+preferred-citation:
+  type: software
+  authors:
+    - family-names: "Llorente-Saguer"
+      given-names: "Isaac"
+      orcid: "https://orcid.org/0000-0002-7612-5331"
+  title: "GoldbachGPU (v1.0.0)"
+  version: "1.0.0"
+  doi: "10.5281/zenodo.18786328"
+  date-released: 2026-02-26
+  url: "https://doi.org/10.5281/zenodo.18786328"
+  

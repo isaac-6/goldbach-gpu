@@ -1,3 +1,4 @@
+[![DOI](https://zenodo.org/badge/1162873542.svg)](https://doi.org/10.5281/zenodo.18786329)
 ![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)
 ![Language: C++](https://img.shields.io/badge/Language-C%2B%2B-blue.svg)
 ![CUDA: 13.1](https://img.shields.io/badge/CUDA-13.1-green.svg)
@@ -242,9 +243,8 @@ are documented in [RESULTS.md](RESULTS.md) for each run.
 If you use this work, please cite:
 
 ```
-Llorente-Saguer, I. (2026). An Open Source GPU-Accelerated Framework for
-Verification of Goldbach's Conjecture. arXiv preprint [forthcoming].
-https://github.com/isaac-6/goldbach-gpu
+Llorente-Saguer, I. (2026). GoldbachGPU (v1.0.0) [Software]. Zenodo.
+https://doi.org/10.5281/zenodo.18786328
 ```
 
 A preprint will be submitted to arXiv shortly.
