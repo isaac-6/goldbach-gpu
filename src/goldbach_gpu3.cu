@@ -242,6 +242,7 @@ void print_usage(const char* prog) {
 }
 
 void check_vram_limit(uint64_t seg_size, uint64_t small_bytes) {
+    // Hardware VRAM is automatically checked against SEG_SIZE to prevent OOM.
     int device;
     cudaGetDevice(&device);
     cudaDeviceProp prop;
@@ -270,18 +271,6 @@ void check_vram_limit(uint64_t seg_size, uint64_t small_bytes) {
     std::cout << "[Hardware] GPU: " << prop.name
               << " (" << prop.totalGlobalMem / (1024*1024) << " MB VRAM)\n";
 }
-
-// int main(int argc, char** argv) {
-//     // -------------------------------------------------------
-//     // Parse command-line argument: LIMIT
-//     // -------------------------------------------------------
-//     if (argc < 2) {
-//         std::cerr << "Usage: " << argv[0] << " <LIMIT>\n";
-//         std::cerr << "Example: " << argv[0] << " 1000000000\n";
-//         return 1;
-//     }
-
-//     uint64_t LIMIT = std::stoull(argv[1]);
 
 int main(int argc, char** argv) {
     if (argc < 2 ||
