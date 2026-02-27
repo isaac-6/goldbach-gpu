@@ -1,4 +1,5 @@
 [![DOI](https://zenodo.org/badge/1162873542.svg)](https://doi.org/10.5281/zenodo.18786328)
+![Release](https://img.shields.io/github/v/release/isaac-6/goldbach-gpu)
 ![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)
 ![Language: C++](https://img.shields.io/badge/Language-C%2B%2B-blue.svg)
 ![CUDA: 13.1](https://img.shields.io/badge/CUDA-13.1-green.svg)
