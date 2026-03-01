@@ -16,7 +16,14 @@ set(CMAKE_CUDA_FLAGS_RELEASE "${CMAKE_CUDA_FLAGS_RELEASE} -O3 -Xcompiler=-Wall,-
 
 # Target Architecture for RTX 3070 (Compute Capability 8.6)
 # Use "all" or specific "8.6"
-set(CMAKE_CUDA_ARCHITECTURES 86-real)
+# set(CMAKE_CUDA_ARCHITECTURES 86-real)
+
+# Default to building only for the GPU currently installed in the machine (fastest compile).
+# HPC Users: If compiling on a head node without the target GPU, override this by running:
+# cmake .. -DCMAKE_CUDA_ARCHITECTURES="80;90" (for A100 and H100)
+if(NOT DEFINED CMAKE_CUDA_ARCHITECTURES)
+    set(CMAKE_CUDA_ARCHITECTURES native)
+endif()
 
 # --- Dependencies ---
 find_package(OpenMP REQUIRED)
