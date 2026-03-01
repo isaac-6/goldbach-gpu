@@ -4,8 +4,10 @@ BIN="../build/bin/goldbach_gpu3c"
 OUT="bench_gpu3c_results.csv"
 
 LIMITS=(100000000000)
-SEG_SIZES=(10000000 100000000)
-P_SMALL=1000000
+# SEG_SIZES=(10000000 100000000)
+SEG_SIZES=(100000000 500000000 1000000000 2000000000) # Test much larger segments
+P_SMALL=(1000000, 5000000, 10000000)
+
 
 # VERIFIED=("byte" "bitset")
 # SMALL=("on" "off")
