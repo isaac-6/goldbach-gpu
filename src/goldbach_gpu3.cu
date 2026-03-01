@@ -235,8 +235,8 @@ void print_usage(const char* prog) {
     std::cout << "Usage: " << prog << " <LIMIT> [SEG_SIZE] [P_SMALL]\n\n";
     std::cout << "Arguments:\n";
     std::cout << "  LIMIT     Max even integer to check (e.g., 1000000000)\n";
-    std::cout << "  SEG_SIZE  (Optional) Even integers per segment. Default: 500,000,000\n";
-    std::cout << "  P_SMALL   (Optional) GPU prime search bound. Default: 2,000,000\n\n";
+    std::cout << "  SEG_SIZE  (Optional) Even integers per segment. Default: 10,000,000\n";
+    std::cout << "  P_SMALL   (Optional) GPU prime search bound. Default: 1,000,000\n\n";
     std::cout << "Flags:\n";
     std::cout << "  -h, --help  Show this help message\n";
 }
@@ -284,8 +284,8 @@ int main(int argc, char** argv) {
 
     try {
         LIMIT    = std::stoull(argv[1]);
-        SEG_SIZE = (argc > 2) ? std::stoull(argv[2]) : 500'000'000ULL;
-        P_SMALL  = (argc > 3) ? std::stoull(argv[3]) : 2'000'000ULL;
+        SEG_SIZE = (argc > 2) ? std::stoull(argv[2]) : 10'000'000ULL;
+        P_SMALL  = (argc > 3) ? std::stoull(argv[3]) : 1'000'000ULL;
     } catch (...) {
         std::cerr << "Error: Invalid numeric argument. Use -h for help.\n";
         return 1;
