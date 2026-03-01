@@ -44,20 +44,14 @@ target_link_libraries(goldbach_lib PUBLIC OpenMP::OpenMP_CXX)
 # --- Executables ---
 
 # Multi-GPU
-add_executable(goldbach_gpu3c_multi src/goldbach_gpu3c_multi.cu)
-target_link_libraries(goldbach_gpu3c_multi PRIVATE goldbach_lib)
-set_target_properties(goldbach_gpu3c_multi PROPERTIES
+add_executable(goldbach_gpu3_multi src/goldbach_gpu3_multi.cu)
+target_link_libraries(goldbach_gpu3_multi PRIVATE goldbach_lib)
+set_target_properties(goldbach_gpu3_multi PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 
 # 0. Flagship Segmented Verifier
 add_executable(goldbach_gpu3 src/goldbach_gpu3.cu)
 target_link_libraries(goldbach_gpu3 PRIVATE goldbach_lib)
-
-# 0c. Fully optimised GPU3c (byte/bitset selectable, small-bitset toggle)
-add_executable(goldbach_gpu3c src/goldbach_gpu3c.cu)
-target_link_libraries(goldbach_gpu3c PRIVATE goldbach_lib)
-set_target_properties(goldbach_gpu3c PROPERTIES 
-    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 
 # 1. Global Bitset Verifier (Baseline)
 add_executable(goldbach_gpu2 src/goldbach_gpu2.cu)
@@ -84,8 +78,17 @@ set_target_properties(goldbach_gpu3 goldbach_gpu2 big_check single_check cpu_gol
 if(BUILD_LEGACY)
     message(STATUS "Building legacy tools...")
 
-    add_executable(goldbach_gpu legacy/goldbach_gpu.cu)
-    target_link_libraries(goldbach_gpu PRIVATE goldbach_lib)
-    set_target_properties(goldbach_gpu PROPERTIES 
-        RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin/legacy")
+    # 0a. Original GPU Verifier
+    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/legacy/goldbach_gpu.cu")
+        add_executable(goldbach_gpu legacy/goldbach_gpu.cu)
+        target_link_libraries(goldbach_gpu PRIVATE goldbach_lib)
+        set_target_properties(goldbach_gpu PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin/legacy")
+    endif()
+
+    # 0b. Fully optimised GPU3c (byte/bitset selectable, small-bitset toggle)
+    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/legacy/goldbach_gpu3c.cu")
+        add_executable(goldbach_gpu3c legacy/goldbach_gpu3c.cu)
+        target_link_libraries(goldbach_gpu3c PRIVATE goldbach_lib)
+        set_target_properties(goldbach_gpu3c PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin/legacy")
+    endif()
 endif()
