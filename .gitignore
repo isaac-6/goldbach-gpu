@@ -4,6 +4,7 @@ build/
 # benchmark data
 benchmarks/plot_data.tex
 benchmarks.log
+benchmarks/*.csv
 
 # CMake
 CMakeCache.txt
