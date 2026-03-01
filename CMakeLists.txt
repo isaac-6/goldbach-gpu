@@ -43,15 +43,15 @@ target_link_libraries(goldbach_lib PUBLIC OpenMP::OpenMP_CXX)
 
 # --- Executables ---
 
+# Multi-GPU
+add_executable(goldbach_gpu3c_multi src/goldbach_gpu3c_multi.cu)
+target_link_libraries(goldbach_gpu3c_multi PRIVATE goldbach_lib)
+set_target_properties(goldbach_gpu3c_multi PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+
 # 0. Flagship Segmented Verifier
 add_executable(goldbach_gpu3 src/goldbach_gpu3.cu)
 target_link_libraries(goldbach_gpu3 PRIVATE goldbach_lib)
-
-# 0b. Experimental GPU3b (bitset + optimised kernel)
-add_executable(goldbach_gpu3b src/goldbach_gpu3b.cu)
-target_link_libraries(goldbach_gpu3b PRIVATE goldbach_lib)
-set_target_properties(goldbach_gpu3b PROPERTIES 
-    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 
 # 0c. Fully optimised GPU3c (byte/bitset selectable, small-bitset toggle)
 add_executable(goldbach_gpu3c src/goldbach_gpu3c.cu)
