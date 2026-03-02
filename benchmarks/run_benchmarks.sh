@@ -44,15 +44,4 @@ for N in "${GPU3_LIMITS[@]}"; do
     $BIN/goldbach_gpu3 $N 2>&1 | tee -a "$LOGFILE"
 done
 
-# ---------------------------------------------------------
-# GPU3_multi (segmented): 10^8 → 10^12
-# ---------------------------------------------------------
-GPU3m_LIMITS=(100000000 1000000000 10000000000 100000000000 1000000000000)
-
-echo -e "\n--- GPU3_multi (segmented) ---" | tee -a "$LOGFILE"
-for N in "${GPU3m_LIMITS[@]}"; do
-    echo -e "\n[GPU3] N=$N" | tee -a "$LOGFILE"
-    $BIN/goldbach_gpu3_multi $N 2>&1 | tee -a "$LOGFILE"
-done
-
 echo -e "\n=== Benchmark complete ===\n" | tee -a "$LOGFILE"
