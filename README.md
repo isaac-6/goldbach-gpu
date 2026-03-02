@@ -166,7 +166,7 @@ To reproduce the 10¹² result with specific segmentation and prime bounds, you 
 You can specify the number of GPUs to use. The framework will spawn a worker thread for each device and load-balance segments asynchronously. Also works with --gpus=1.
 ```bash
 # Use all available GPUs
-./build/bin/goldbach_gpu3_multi 1000000000000 10000000 1000000 --gpus=-1
+./build/bin/goldbach_gpu3 1000000000000 10000000 1000000 --gpus=-1
 ```
 
 
@@ -253,9 +253,10 @@ If you use this work, please cite:
 
 ```
 Llorente-Saguer, I. (2026). GoldbachGPU (v1.1.0) [Software]. Zenodo.
-https://doi.org/10.5281/zenodo.18786328
+https://doi.org/10.5281/zenodo.18837081
 ```
-
+For the latest version, see the concept DOI:
+https://doi.org/10.5281/zenodo.18786328
 A preprint will be submitted to arXiv shortly.
 
 ---
