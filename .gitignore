@@ -5,6 +5,9 @@ build/
 benchmarks/plot_data.tex
 benchmarks.log
 benchmarks/*.csv
+benchmarks/*.log
+benchmarks/bench_gpu3*.sh
+benchmarks/extract_gpu3.py
 log.txt
 
 # CMake
