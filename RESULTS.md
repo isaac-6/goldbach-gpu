@@ -82,28 +82,27 @@ No VRAM ceiling: each segment uses ~60 MB regardless of total range.
 
 ### Configuration used for all runs below
 ```
-SEG_SIZE = 500,000,000  (5x10^8 even numbers per segment)
-P_SMALL  = 2,000,000
+SEG_SIZE = 10,000,000  (5x10^6 even numbers per segment)
+P_SMALL  = 1,000,000
 P_BATCH  = 100,000
-GPU primes used: 148,933
+GPU primes used: 78,498
 Segment buffer: 59 MB
 Verified buffer: 476 MB
 ```
 
 | Limit | Even n checked | GPU success | Phase 2 fallbacks | Total time | Failures |
 |-------|----------------|-------------|-------------------|------------|----------|
-| 10^8  | 49,999,999    | 100% | 0 | 240 ms      | 0 |
-| 10^9  | 499,999,999    | 100% | 0 | 3,595 ms      | 0 |
-| 10^10 | 4,999,999,999  | 100% | 0 | 42,656 ms     | 0 |
-| 10^11 | 49,999,999,999 | 100% | 0 | 497,427 ms    | 0 |
-| 10^12 | 499,999,999,999 | 100% | 0 | 5,760,350 ms | 0 |
+| 10^8  | 49,999,999    | 100% | 0 | 305 ms      | 0 |
+| 10^9  | 499,999,999    | 100% | 0 | 2,049 ms      | 0 |
+| 10^10 | 4,999,999,999  | 100% | 0 | 23,546 ms     | 0 |
+| 10^11 | 49,999,999,999 | 100% | 0 | 226,490 ms    | 0 |
+| 10^12 | 499,999,999,999 | 100% | 0 | 2,457,040 ms | 0 |
 
 100% GPU success rate confirms p_min(n) <= 2,000,000 for all even n <= 10^12.
 Predicted worst case H(10^12) ~ 2,000 (quadratic fit to Oliveira e Silva data).
 Our bound exceeds the prediction by 3 orders of magnitude as a safety margin.
 
-goldbach_gpu3 is slower than goldbach_gpu2 at shared limits (41,320 ms vs
-25,443 ms at 10^10) due to per-segment overhead. This is an inherent trade-off:
+goldbach_gpu3 is slower than goldbach_gpu2 at lower limits due to per-segment overhead. This is an inherent trade-off:
 goldbach_gpu3 has no VRAM ceiling; goldbach_gpu2 cannot exceed 10^11.
 
 ---
@@ -170,7 +169,8 @@ p=113 (10^200) found in 43 ms; p=26,981 (10^1000) takes 363 ms with 20 threads.
 - [x] GMP arbitrary precision single number checker (to 10^10000, 20 threads)
 - [x] Batch-synchronised big_check (prevents thread runaway, 21% faster)
 - [x] GPU segmented verifier, correct double-sieve design (gpu3)
-- [x] Range verification to 10^12 (500 billion even numbers, 96 minutes)
+- [x] Range verification to 10^12 (500 billion even numbers, 41 minutes)
+- [x] Multi-GPU adaptation (tested on 8x H100)
 - [ ] GPU-accelerated sieve construction (remove CPU sieve bottleneck)
 - [ ] Oliveira-style bulk double sieve on GPU (O(N log log N), target 10^15)
 - [ ] Goldbach partition counting c(n) at scale
