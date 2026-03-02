@@ -28,9 +28,9 @@ The following figure shows total wall‑clock time to verify all even integers u
 
 ![Performance comparison of CPU, goldbach_gpu2, and goldbach_gpu3](assets/performance_plot.png)
 
-> **Desktop:** All even integers up to 10¹² verified on a single NVIDIA RTX 3070 (8 GB VRAM) in 96 minutes.
+> **Desktop:** All even integers up to 10¹² verified on a single NVIDIA RTX 3070 (8 GB VRAM) in 41 minutes.
 > 
-> **Cloud / HPC:** Verified 10¹² in just **9.4 minutes** on an 8× NVIDIA H100 cluster (10.2× speedup), demonstrating near-linear strong scaling.
+> **Cloud / HPC:** Verified 10¹² in just **9.4 minutes** on an 8× NVIDIA H100 cluster, demonstrating near-linear strong scaling.S
 
 This is achieved by our multi-worker, segmented double-sieve verifier that removes the VRAM ceiling of earlier designs and distributes work asynchronously across multiple PCIe/NVLink devices. See [Architecture](#architecture) and [Results](#results-summary) below.
 
@@ -118,8 +118,8 @@ with a global bitset design on 8 GB VRAM.
 
 ```bash
 mkdir build && cd build
-cmake .. -DBUILD_LEGACY=OFF     # enable legacy tools (like goldbach_gpu) with -DBUILD_LEGACY=ON
-make -j$(nproc)
+cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_LEGACY=OFF
+cmake --build . -j$(nproc)
 ```
 
 **Dependencies:** CUDA toolkit, GMP, OpenMP.
@@ -155,18 +155,18 @@ Expected time: ~1.3 s at 10⁹, ~25 s at 10¹⁰.
 ```bash
 ./build/bin/goldbach_gpu3 1000000000000
 ```
-No VRAM ceiling. Hardware VRAM is checked against the segment size at launch to ensure safe execution. Expected time: ~96 min at 10¹².
+No VRAM ceiling. Hardware VRAM is checked against the segment size at launch to ensure safe execution. Expected time: 41 min at 10¹².
 
 To reproduce the 10¹² result with specific segmentation and prime bounds, you can pass them directly via the CLI (`<LIMIT> [SEG_SIZE] [P_SMALL]`):
 ```bash
-./build/bin/goldbach_gpu3 1000000000000 500000000 2000000
+./build/bin/goldbach_gpu3 1000000000000 10000000 1000000
 ```
 
 ### For Multi-GPU / Cloud environments:
 You can specify the number of GPUs to use. The framework will spawn a worker thread for each device and load-balance segments asynchronously. Also works with --gpus=1.
 ```bash
 # Use all available GPUs
-./build/bin/goldbach_gpu3_multi 1000000000000 500000000 4000000 --gpus=-1
+./build/bin/goldbach_gpu3_multi 1000000000000 10000000 1000000 --gpus=-1
 ```
 
 
