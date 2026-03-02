@@ -6,9 +6,9 @@ authors:
     orcid: "https://orcid.org/0000-0002-7612-5331"
 
 title: "GoldbachGPU: An Open Source GPU-Accelerated Framework for Verification of Goldbach's Conjecture"
-version: "1.0.0"
-date-released: 2026-02-26
-doi: "10.5281/zenodo.18788222"
+version: "1.1.0"
+date-released: 2026-03-02
+doi: "10.5281/zenodo.18786328"
 url: "https://github.com/isaac-6/goldbach-gpu"
 repository-code: "https://github.com/isaac-6/goldbach-gpu"
 license: MIT
@@ -26,7 +26,7 @@ preferred-citation:
       given-names: "Isaac"
       orcid: "https://orcid.org/0000-0002-7612-5331"
   title: "GoldbachGPU: An Open Source GPU-Accelerated Framework for Verification of Goldbach's Conjecture (v1.0.0)"
-  version: "1.0.0"
-  doi: "10.5281/zenodo.18788222"
-  date-released: 2026-02-26
-  url: "https://doi.org/10.5281/zenodo.18788222"
+  version: "1.1.0"
+  doi: "10.5281/zenodo.18786328"
+  date-released: 2026-03-02
+  url: "https://doi.org/10.5281/zenodo.18786328"

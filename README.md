@@ -252,8 +252,8 @@ are documented in [RESULTS.md](RESULTS.md) for each run.
 If you use this work, please cite:
 
 ```
-Llorente-Saguer, I. (2026). GoldbachGPU (v1.0.0) [Software]. Zenodo.
-https://doi.org/10.5281/zenodo.18788222
+Llorente-Saguer, I. (2026). GoldbachGPU (v1.1.0) [Software]. Zenodo.
+https://doi.org/10.5281/zenodo.18786328
 ```
 
 A preprint will be submitted to arXiv shortly.
