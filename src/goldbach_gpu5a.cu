@@ -486,6 +486,14 @@ int main(int argc, char** argv) {
     std::cout << "Segment buffer: " << seg_bytes / 1024 / 1024 << " MB\n";
     std::cout << "Verified buffer: " << SEG_SIZE / 1024 / 1024 << " MB\n\n";
 
+    // Create CUDA streams (at least 1)
+    if (opt.streams < 1) opt.streams = 1;
+    std::vector<cudaStream_t> streams(opt.streams);
+    for (int s = 0; s < opt.streams; ++s) {
+        CUDA_CHECK(cudaStreamCreate(&streams[s]));
+    }
+
+
     // -------------------------------------------------------
     // Step 4: Main loop -- process segments
     // -------------------------------------------------------
@@ -498,8 +506,12 @@ int main(int argc, char** argv) {
     auto t_main = std::chrono::high_resolution_clock::now();
 
     uint64_t seg_start = 4;
+    uint64_t seg_index = 0;
+
 
     while (seg_start <= LIMIT) {
+        cudaStream_t stream = streams[seg_index % streams.size()];
+
         uint64_t seg_end = std::min(seg_start + SEG_SIZE * 2 - 2, LIMIT);
 
         // Odd range for segment bitset
@@ -533,22 +545,38 @@ int main(int argc, char** argv) {
                                       (uint64_t)gpu_primes.size());
             uint64_t bsize = bend - bi;
 
-            CUDA_CHECK(cudaMemcpy(d_p_batch,
-                                  gpu_primes.data() + bi,
-                                  bsize * sizeof(uint64_t),
-                                  cudaMemcpyHostToDevice));
+            if (opt.async) {
+                CUDA_CHECK(cudaMemcpyAsync(d_p_batch,
+                                        gpu_primes.data() + bi,
+                                        bsize * sizeof(uint64_t),
+                                        cudaMemcpyHostToDevice,
+                                        stream));
 
-            goldbach_phase1_kernel<<<(uint32_t)blocks,
-                                     threads_per_block>>>(
-                d_small,   small_high,
-                d_seg,     seg_low, seg_high,
-                seg_start, seg_even_count,
-                d_p_batch, bsize,
-                d_verified);
-            
-            CUDA_CHECK(cudaGetLastError());
+                goldbach_phase1_kernel<<<(uint32_t)blocks,
+                                        threads_per_block,
+                                        0, stream>>>(
+                    d_small,   small_high,
+                    d_seg,     seg_low, seg_high,
+                    seg_start, seg_even_count,
+                    d_p_batch, bsize,
+                    d_verified);
 
-            if (!opt.async){
+                CUDA_CHECK(cudaGetLastError());
+            } else {
+                CUDA_CHECK(cudaMemcpy(d_p_batch,
+                                    gpu_primes.data() + bi,
+                                    bsize * sizeof(uint64_t),
+                                    cudaMemcpyHostToDevice));
+
+                goldbach_phase1_kernel<<<(uint32_t)blocks,
+                                        threads_per_block>>>(
+                    d_small,   small_high,
+                    d_seg,     seg_low, seg_high,
+                    seg_start, seg_even_count,
+                    d_p_batch, bsize,
+                    d_verified);
+
+                CUDA_CHECK(cudaGetLastError());
                 CUDA_CHECK(cudaDeviceSynchronize());
             }
         }
@@ -560,10 +588,19 @@ int main(int argc, char** argv) {
         //                       cudaMemcpyDeviceToHost));
         // Optimization: only copy back failures if requested
         if (opt.copyMode == Options::FULL) {
-            CUDA_CHECK(cudaMemcpy(verified.data(), d_verified,
-                                seg_even_count,
-                                cudaMemcpyDeviceToHost));
+            if (opt.async) {
+                CUDA_CHECK(cudaMemcpyAsync(verified.data(), d_verified,
+                                        seg_even_count,
+                                        cudaMemcpyDeviceToHost,
+                                        stream));
+                CUDA_CHECK(cudaStreamSynchronize(stream));
+            } else {
+                CUDA_CHECK(cudaMemcpy(verified.data(), d_verified,
+                                    seg_even_count,
+                                    cudaMemcpyDeviceToHost));
+            }
         }
+
         else if (opt.copyMode == Options::FAILURES) {
             // Only copy a tiny flag buffer (1 byte per segment)
             uint8_t any_unverified = 0;
@@ -604,6 +641,7 @@ int main(int argc, char** argv) {
 
         total_processed += seg_even_count;
         seg_start        = seg_end + 2;
+        seg_index++;
 
         double pct = 100.0 * total_processed / total_even;
         std::cout << "  Progress: " << total_processed
@@ -638,10 +676,15 @@ int main(int argc, char** argv) {
     }
 
     // Cleanup
+    for (auto& s : streams) {
+        CUDA_CHECK(cudaStreamDestroy(s));
+    }
+
     CUDA_CHECK(cudaFree(d_small));
     CUDA_CHECK(cudaFree(d_seg));
     CUDA_CHECK(cudaFree(d_verified));
     CUDA_CHECK(cudaFree(d_p_batch));
+
 
     return (total_failures == 0) ? 0 : 1;
 }
