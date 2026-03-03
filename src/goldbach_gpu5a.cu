@@ -242,14 +242,27 @@ static std::vector<uint64_t> build_segment_bitset(
 }
 
 void print_usage(const char* prog) {
-    std::cout << "Goldbach Conjecture Segmented Verifier (GPU)\n";
-    std::cout << "Usage: " << prog << " <LIMIT> [SEG_SIZE] [P_SMALL]\n\n";
-    std::cout << "Arguments:\n";
-    std::cout << "  LIMIT     Max even integer to check (e.g., 1000000000)\n";
-    std::cout << "  SEG_SIZE  (Optional) Even integers per segment. Default: 10,000,000\n";
-    std::cout << "  P_SMALL   (Optional) GPU prime search bound. Default: 1,000,000\n\n";
-    std::cout << "Flags:\n";
-    std::cout << "  -h, --help  Show this help message\n";
+    std::cout << "Goldbach Conjecture Segmented Verifier (GPU)\n\n";
+
+    std::cout << "Usage:\n"
+              << "  " << prog << " <LIMIT> [SEG_SIZE] [P_SMALL]\n"
+              << "  " << prog << " <LIMIT> [--seg-size=N] [--p-small=N]\n\n";
+
+    std::cout << "Required:\n"
+              << "  LIMIT            Max even integer to check (e.g., 1000000000)\n\n";
+
+    std::cout << "Optional positional arguments (legacy):\n"
+              << "  SEG_SIZE         Even integers per segment (default: 10,000,000)\n"
+              << "  P_SMALL          GPU prime search bound (default: 1,000,000)\n\n";
+
+    std::cout << "Optional flags:\n"
+              << "  --seg-size=N     Override SEG_SIZE\n"
+              << "  --p-small=N      Override P_SMALL\n"
+              << "  --batch-size=N   Primes per GPU batch (default: 100000)\n"
+              << "  --copy-mode=MODE {full, failures, none}\n"
+              << "  --streams=N      Number of CUDA streams (default: 1)\n"
+              << "  --async          Enable async kernel launches\n"
+              << "  -h, --help       Show this help message\n";
 }
 
 void check_vram_limit(uint64_t seg_size, uint64_t small_bytes) {
@@ -284,19 +297,21 @@ void check_vram_limit(uint64_t seg_size, uint64_t small_bytes) {
 }
 
 int main(int argc, char** argv) {
-    if (argc < 2 ||
-        std::string(argv[1]) == "-h" ||
-        std::string(argv[1]) == "--help") {
+    if (argc < 2) {
         print_usage(argv[0]);
         return 0;
     }
 
-    uint64_t LIMIT, SEG_SIZE, P_SMALL;
-
     Options opt;
+    uint64_t LIMIT = 0;
+    uint64_t SEG_SIZE = 10'000'000ULL;
+    uint64_t P_SMALL  = 1'000'000ULL;
 
     std::vector<std::string> positional;
 
+    // -----------------------------
+    // Pass 1: collect flags + positional
+    // -----------------------------
     for (int i = 1; i < argc; i++) {
         std::string arg = argv[i];
 
@@ -311,7 +326,7 @@ int main(int argc, char** argv) {
         }
 
         if (arg.rfind("--batch-size=", 0) == 0) {
-            opt.batchSize = std::stoi(arg.substr(13));
+            opt.batchSize = std::stoull(arg.substr(13));
             continue;
         }
 
@@ -332,33 +347,44 @@ int main(int argc, char** argv) {
             continue;
         }
 
-        // Otherwise it's a positional numeric argument
+        if (arg.rfind("--seg-size=", 0) == 0) {
+            SEG_SIZE = std::stoull(arg.substr(11));
+            continue;
+        }
+
+        if (arg.rfind("--p-small=", 0) == 0) {
+            P_SMALL = std::stoull(arg.substr(10));
+            continue;
+        }
+
+        // Otherwise it's positional
         positional.push_back(arg);
     }
 
-    // Now parse positional arguments
-    if (positional.size() < 1) {
-        std::cerr << "Error: LIMIT is required.\n";
-        return 1;
-    }
-
-
-    // try {
-    //     LIMIT    = std::stoull(argv[1]);
-    //     SEG_SIZE = (argc > 2) ? std::stoull(argv[2]) : 10'000'000ULL;
-    //     P_SMALL  = (argc > 3) ? std::stoull(argv[3]) : 1'000'000ULL;
-    // } catch (...) {
-    //     std::cerr << "Error: Invalid numeric argument. Use -h for help.\n";
-    //     return 1;
-    // }
+    // -----------------------------
+    // Pass 2: parse positional arguments
+    // -----------------------------
     try {
-        LIMIT    = std::stoull(positional[0]);
-        SEG_SIZE = (positional.size() > 1) ? std::stoull(positional[1]) : 10'000'000ULL;
-        P_SMALL  = (positional.size() > 2) ? std::stoull(positional[2]) : 1'000'000ULL;
+        if (positional.size() < 1) {
+            std::cerr << "Error: LIMIT is required.\n";
+            return 1;
+        }
+
+        LIMIT = std::stoull(positional[0]);
+
+        // Legacy positional overrides
+        if (positional.size() > 1)
+            SEG_SIZE = std::stoull(positional[1]);
+
+        if (positional.size() > 2)
+            P_SMALL = std::stoull(positional[2]);
+
     } catch (...) {
         std::cerr << "Error: Invalid numeric argument. Use -h for help.\n";
         return 1;
     }
+
+    // Now LIMIT, SEG_SIZE, P_SMALL, and opt.* are all set correctly.
 
 
     if (LIMIT < 4) {
