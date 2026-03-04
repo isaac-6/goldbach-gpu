@@ -36,9 +36,9 @@
 //   - Memory: ~60 MB per 10^9 for small primes bitset
 //
 // TESTED RANGE:
-//   This implementation is mathematically sound and performance-tested for
-//   verification from 4 to 10^19 and beyond (limited only by VRAM and time).
-//   All overflow vulnerabilities have been eliminated.
+//   This implementation is mathematically sound for
+//   verification from 4 to 10^19 and beyond (limited by time).
+//   No overflow vulnerabilities..
 
 
 
@@ -814,6 +814,7 @@ int main(int argc, char** argv) {
         cudaEventRecord(s_end, stream);
         cudaEventSynchronize(s_end);
         cudaEventElapsedTime(&sieve_ms, s_start, s_end);
+        total_ms_sieve += sieve_ms;
 
         // Cleanup sieve events
         CUDA_CHECK(cudaEventDestroy(s_start));
