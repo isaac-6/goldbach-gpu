@@ -56,6 +56,30 @@ target_link_libraries(goldbach_gpu3 PRIVATE goldbach_lib)
 set_target_properties(goldbach_gpu3 PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 
+
+# Multi-GPU 5a (Stream-Based Optimization)
+add_executable(goldbach_gpu5a src/goldbach_gpu5a.cu)
+target_link_libraries(goldbach_gpu5a PRIVATE goldbach_lib)
+set_target_properties(goldbach_gpu5a PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+
+
+# Multi-GPU 5b (Stream-Based Optimization)
+add_executable(goldbach_gpu5b src/goldbach_gpu5b.cu)
+target_link_libraries(goldbach_gpu5b PRIVATE goldbach_lib)
+
+# Enable GPU-vs-CPU segment sieve validation
+target_compile_definitions(goldbach_gpu5b PRIVATE DEBUG_SEGMENT_SIEVE)
+
+set_target_properties(goldbach_gpu5b PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+
+# Multi-GPU 5c (Stream-Based Optimization)
+add_executable(goldbach_gpu5c src/goldbach_gpu5c.cu)
+target_link_libraries(goldbach_gpu5c PRIVATE goldbach_lib)
+set_target_properties(goldbach_gpu5c PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+
 # 1. Global Bitset Verifier (Baseline)
 add_executable(goldbach_gpu2 src/goldbach_gpu2.cu)
 target_link_libraries(goldbach_gpu2 PRIVATE goldbach_lib)

@@ -8,7 +8,7 @@ benchmarks/*.csv
 benchmarks/*.log
 benchmarks/bench_gpu3*.sh
 benchmarks/extract_gpu3.py
-log.txt
+*.txt
 
 # CMake
 CMakeCache.txt
