@@ -23,19 +23,17 @@
 //
 // CRITICAL LIMITS:
 //   - P_SMALL must be <= 4,000,000,000 (~4 billion) to prevent p*p overflow
-//   - DEFAULT P_SMALL = 10^7 (sufficient for all known even numbers < 4×10^18)
-//   - For frontier work (10^19+), recommend P_SMALL = 10^8 or higher
 //   - LIMIT is theoretically up to 2^64-1, but practical limits:
 //     * GPU VRAM constrains SEG_SIZE (~10^7 to 10^8 typical)
 //     * Integer sqrt computed exactly using binary search (no double loss)
-//     * Phase 2 now uses sieve + Miller-Rabin (handles 10^18+ in seconds)
+//     * Phase 2 now uses sieve + Miller-Rabin
 //
 // PERFORMANCE CHARACTERISTICS:
-//   - Phase 1: ~10^9 numbers/sec on modern GPU (RTX 3090 class)
-//   - Phase 2: ~10^6 candidates/sec (should be rare with P_SMALL >= 10^7)
-//   - Memory: ~60 MB per 10^9 for small primes bitset
+//   - Phase 1: 10^12 in just under 6minutes on RTX 3070
+//   - Phase 2: never reached on tested inputs due to effective Phase 1 filtering
+//   - Memory: ~200 MB with  --seg-size=200000000 --p-small=1000000 --batch-size=2000000
 //
-// TESTED RANGE:
+// RANGE:
 //   This implementation is mathematically sound for
 //   verification from 4 to 10^19 and beyond (limited by time).
 //   No overflow vulnerabilities..
@@ -294,11 +292,6 @@ __global__ void tiled_sieve_segment_kernel(
 }
 
 // -------------------------------------------------------
-// REMOVED: sieve_segment_kernel (had race conditions)
-// Now using only tiled_sieve_segment_kernel which is race-free
-// -------------------------------------------------------
-
-// -------------------------------------------------------
 // Phase 1 kernel: GPU verification with bounded p.
 // One thread per even n in segment.
 //
@@ -495,10 +488,8 @@ void print_usage(const char* prog) {
               << "  --seg-size=N     Override SEG_SIZE\n"
               << "  --p-small=N      Override P_SMALL (max: 4,000,000,000)\n"
               << "  --batch-size=N   Primes per GPU batch (default: 100000)\n"
-              << "  --copy-mode=MODE {full, failures, none}\n"
-              << "                   NOTE: 'failures' mode now copies full array for correctness\n"
-              << "  --streams=N      Number of CUDA streams (default: 1)\n"
-              << "  --async          Enable async kernel launches\n"
+              << "  --streams=N      (experimental) Number of CUDA streams (default: 1)\n"
+              << "  --async          (experimental) Enable async kernel launches\n"
               << "  -h, --help       Show this help message\n";
 }
 
@@ -546,9 +537,7 @@ int main(int argc, char** argv) {
     Options opt;
     uint64_t LIMIT   = 0;
     uint64_t SEG_SIZE= 10'000'000ULL;
-    // Raised default to 10^7 based on known Goldbach verification results
-    // Every even number < 4×10^18 has a Goldbach prime <= ~10^7
-    uint64_t P_SMALL = 10'000'000ULL;  // 10 million
+    uint64_t P_SMALL = 1'000'000ULL;  // 10 million
 
     std::vector<std::string> positional;
 
@@ -570,17 +559,18 @@ int main(int argc, char** argv) {
             continue;
         }
 
-        if (arg.rfind("--copy-mode=", 0) == 0) {
-            std::string m = arg.substr(12);
-            if (m == "full") opt.copyMode = Options::FULL;
-            else if (m == "failures") opt.copyMode = Options::FAILURES;
-            else if (m == "none") opt.copyMode = Options::NONE;
-            else {
-                std::cerr << "Invalid --copy-mode value\n";
-                return 1;
-            }
-            continue;
-        }
+        // if (arg.rfind("--copy-mode=", 0) == 0) {
+        //     std::string m = arg.substr(12);
+        //     if (m == "full") opt.copyMode = Options::FULL;
+        //     else if (m == "failures") opt.copyMode = Options::FAILURES;
+        //     else if (m == "none") opt.copyMode = Options::NONE;
+        //     else {
+        //         std::cerr << "Invalid --copy-mode value\n";
+        //         return 1;
+        //     }
+        //     continue;
+        // }
+        opt.copyMode = Options::FULL;
 
         if (arg.rfind("--streams=", 0) == 0) {
             opt.streams = std::stoi(arg.substr(10));
@@ -657,8 +647,7 @@ int main(int argc, char** argv) {
 
     if (LIMIT % 2 != 0) LIMIT--;
 
-    // CRITICAL: Compute sqrt(LIMIT) using integer arithmetic to avoid double precision loss
-    // For LIMIT > 2^53, (double)LIMIT loses precision and sqrt can be incorrect
+    //Compute sqrt(LIMIT) using integer arithmetic to avoid double precision loss
     uint64_t sqrt_limit = 0;
     if (LIMIT >= 4) {
         // Binary search for floor(sqrt(LIMIT))
@@ -667,7 +656,7 @@ int main(int argc, char** argv) {
         
         while (low <= high) {
             uint64_t mid = low + (high - low) / 2;
-            // Use division to avoid overflow: mid^2 <= LIMIT iff mid <= LIMIT/mid
+            // We use division to avoid overflow: mid^2 <= LIMIT iff mid <= LIMIT/mid
             if (mid <= LIMIT / mid) {
                 sqrt_limit = mid;
                 low = mid + 1;
@@ -793,7 +782,6 @@ int main(int argc, char** argv) {
         if ((q_high & 1) == 0) q_high++;
 
         uint64_t num_odds  = (q_high - q_low) / 2 + 1;
-        uint64_t num_words = (num_odds + 63) / 64;
 
         // 1) GPU sieve for [q_low, q_high]
         float sieve_ms = 0.0f;
@@ -1002,7 +990,7 @@ int main(int argc, char** argv) {
     std::cout << "\n--- Timing breakdown ---\n";
     std::cout << "GPU sieve total:          " << total_ms_sieve         << " ms\n";
     std::cout << "GPU kernel total:         " << total_ms_kernel        << " ms\n";
-    std::cout << "Copy verified → CPU total:" << total_ms_copy_verified << " ms\n";
+    std::cout << "Copy verified → CPU total: " << total_ms_copy_verified << " ms\n";
     std::cout << "CPU Phase 2 total:        " << total_ms_phase2        << " ms\n";
 
     std::cout << "\n--- Summary ---\n";
