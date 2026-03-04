@@ -1,21 +1,4 @@
-// goldbach_gpu5a.cu
-// GPU Goldbach range verifier -- correct segmented design.
-//
-// Algorithm (double sieve over n):
-//
-//   For each segment [A, B] of even numbers:
-//     Phase 1 (GPU): for each prime p in [2, P_SMALL],
-//       mark all even n in [A, B] as verified if n-p is prime.
-//       q = n-p checked via small bitset, segment bitset, or Miller-Rabin.
-//     Phase 2 (CPU fallback): any n still unverified after Phase 1
-//       is checked exhaustively: all odd p from 3 to n/2,
-//       testing both p and n-p for primality directly.
-//       This is slow but correct, and expected to never trigger.
-//
-// Correctness guarantee:
-//   Every even n in [4, LIMIT] is verified by Phase 1 or Phase 2.
-//   Phase 2 is truly exhaustive -- no bound on p.
-//   The result is mathematically rigorous.
+// Multi-GPU Goldbach range verifier.
 
 #include <cuda_runtime.h>
 #include <cstdint>
@@ -24,37 +7,61 @@
 #include <chrono>
 #include <cmath>
 #include <algorithm>
+#include <string>
+#include <thread>
+#include <atomic>
+#include <mutex>
+#include <sstream>
 #include "prime_bitset.hpp"
 
 using namespace goldbach;
+
+inline std::chrono::high_resolution_clock::time_point now() {
+    return std::chrono::high_resolution_clock::now();
+}
+
+// ------------------------------------------------------------
+// Thread-Safe Global State & Logging
+// ------------------------------------------------------------
+static std::atomic<bool>     g_failure{false};
+static std::atomic<uint64_t> g_failure_n{0};
+static std::atomic<uint64_t> g_next_segment_start{4};
+static std::atomic<uint64_t> g_total_phase2_count{0};
+
+static std::mutex g_log_mutex;
+
+// Thread-safe logging to prevent garbled console output
+template<typename... Args>
+void safe_log(Args... args) {
+    std::ostringstream oss;
+    (oss << ... << args);
+    std::lock_guard<std::mutex> lock(g_log_mutex);
+    std::cout << oss.str() << "\n";
+}
 
 // -------------------------------------------------------
 // Runtime optimization flags
 // -------------------------------------------------------
 struct Options {
     bool async = false;
-    int batchSize = 100000;
-    enum CopyMode { FULL, FAILURES, NONE } copyMode = FULL;
-    int streams = 1;
+    uint64_t batchSize = 100000;
 };
-
 
 #define CUDA_CHECK(call)                                                    \
     do {                                                                    \
         cudaError_t err = (call);                                           \
         if (err != cudaSuccess) {                                           \
-            std::cerr << "CUDA error at " << __FILE__ << ":" << __LINE__   \
-                      << " -- " << cudaGetErrorString(err) << "\n";        \
+            safe_log("CUDA error at ", __FILE__, ":", __LINE__,             \
+                     " -- ", cudaGetErrorString(err));                      \
             std::exit(1);                                                   \
         }                                                                   \
     } while (0)
 
 // -------------------------------------------------------
-// Miller-Rabin primality test for 64-bit integers on GPU.
-// Deterministic for all n < 3.3 x 10^24 with these witnesses.
+// GPU Kernel Device Functions
 // -------------------------------------------------------
 __device__ uint64_t mulmod64(uint64_t a, uint64_t b, uint64_t m) {
-    return (__uint128_t)a * b % m;
+    return (uint64_t)((__uint128_t)a * b % m);
 }
 
 __device__ uint64_t powmod64(uint64_t base, uint64_t exp, uint64_t mod) {
@@ -68,8 +75,7 @@ __device__ uint64_t powmod64(uint64_t base, uint64_t exp, uint64_t mod) {
     return result;
 }
 
-__device__ bool miller_rabin_witness(uint64_t n, uint64_t a,
-                                     uint64_t d, uint64_t r) {
+__device__ bool miller_rabin_witness(uint64_t n, uint64_t a, uint64_t d, uint64_t r) {
     uint64_t x = powmod64(a, d, n);
     if (x == 1 || x == n - 1) return true;
     for (uint64_t i = 0; i < r - 1; i++) {
@@ -87,8 +93,7 @@ __device__ bool gpu_is_prime_miller_rabin(uint64_t n) {
     uint64_t d = n - 1, r = 0;
     while ((d & 1) == 0) { d >>= 1; r++; }
 
-    const uint64_t witnesses[] =
-        {2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37};
+    const uint64_t witnesses[] = {2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37};
     for (int i = 0; i < 12; i++) {
         if (witnesses[i] >= n) continue;
         if (!miller_rabin_witness(n, witnesses[i], d, r)) return false;
@@ -96,77 +101,126 @@ __device__ bool gpu_is_prime_miller_rabin(uint64_t n) {
     return true;
 }
 
-// -------------------------------------------------------
-// Device function: is q prime?
-// Three cases depending on where q falls:
-//   1. q <= small_high: small primes bitset
-//   2. q in [seg_low, seg_high]: segment bitset
-//   3. otherwise: Miller-Rabin
-// -------------------------------------------------------
 __device__ bool is_prime_q(
-    uint64_t q,
-    const uint64_t* __restrict__ d_small,
-    uint64_t small_high,
-    const uint64_t* __restrict__ d_seg,
-    uint64_t seg_low,
-    uint64_t seg_high)
+    uint64_t q, const uint64_t* __restrict__ d_small, uint64_t small_high,
+    const uint64_t* __restrict__ d_seg_bits, uint64_t q_low, uint64_t q_high)
 {
-    if (q < 2) return false;
+    if (q < 2)  return false;
     if (q == 2) return true;
     if ((q & 1) == 0) return false;
 
     if (q <= small_high) {
         uint64_t bit_pos  = (q - 3) / 2;
-        uint64_t word_idx = bit_pos / 64;
-        uint64_t bit_idx  = bit_pos % 64;
-        return (d_small[word_idx] >> bit_idx) & 1ULL;
+        return (d_small[bit_pos / 64] >> (bit_pos % 64)) & 1ULL;
     }
 
-    if (q >= seg_low && q <= seg_high) {
-        uint64_t bit_pos  = (q - seg_low) / 2;
-        uint64_t word_idx = bit_pos / 64;
-        uint64_t bit_idx  = bit_pos % 64;
-        return (d_seg[word_idx] >> bit_idx) & 1ULL;
+    if (q >= q_low && q <= q_high) {
+        uint64_t bit_pos  = (q - q_low) / 2;
+        return (d_seg_bits[bit_pos / 64] >> (bit_pos % 64)) & 1ULL;
     }
 
     return gpu_is_prime_miller_rabin(q);
 }
 
 // -------------------------------------------------------
-// Phase 1 kernel: GPU verification with bounded p.
-// One thread per even n in segment.
-// For each prime in current batch, check if n-p is prime.
+// GPU Kernels
 // -------------------------------------------------------
-__global__ void goldbach_phase1_kernel(
-    const uint64_t* __restrict__ d_small,
-    uint64_t        small_high,
-    const uint64_t* __restrict__ d_seg,
-    uint64_t        seg_low,
-    uint64_t        seg_high,
-    uint64_t        seg_even_start,
-    uint64_t        seg_even_count,
-    const uint64_t* __restrict__ p_batch,
-    uint64_t        p_batch_size,
-    uint8_t*        __restrict__ d_verified)
+__global__ void count_unverified_kernel(
+    const uint8_t* __restrict__ d_verified,
+    uint64_t seg_even_count,
+    uint32_t* __restrict__ d_unverified_count)
 {
     uint64_t tid = blockIdx.x * blockDim.x + threadIdx.x;
     if (tid >= seg_even_count) return;
 
-    // Early exit -- already verified by a previous batch
+    if (d_verified[tid] == 0) {
+        atomicAdd(d_unverified_count, 1u);
+    }
+}
+
+#define TILE_ODDS 32768
+static const int THREADS_PER_BLOCK = 256;
+
+__global__ void tiled_sieve_segment_kernel(
+    uint64_t        q_low,
+    uint64_t        q_high,
+    const uint64_t* __restrict__ d_small_primes,
+    uint64_t        small_prime_count,
+    uint64_t*       __restrict__ d_seg_bits)
+{
+    extern __shared__ uint64_t sh_tile[]; 
+
+    uint64_t num_odds = (q_high - q_low) / 2 + 1;
+    uint64_t num_tiles = (num_odds + TILE_ODDS - 1) / TILE_ODDS;
+
+    uint64_t tile_id = blockIdx.x;
+    if (tile_id >= num_tiles) return;
+
+    uint64_t tile_odd_start = tile_id * TILE_ODDS;
+    uint64_t tile_odd_end   = min(tile_odd_start + TILE_ODDS, num_odds);
+    uint64_t tile_odd_count = tile_odd_end - tile_odd_start;
+    uint64_t tile_word_count = (tile_odd_count + 63) / 64;
+
+    for (uint64_t w = threadIdx.x; w < tile_word_count; w += blockDim.x) {
+        sh_tile[w] = ~0ULL;
+    }
+    __syncthreads();
+
+    for (uint64_t pi = threadIdx.x; pi < small_prime_count; pi += blockDim.x) {
+        uint64_t p = d_small_primes[pi];
+        if (p < 3 || p > q_high / p) continue;
+
+        // Overflow-safe ceiling division: 1 + (q_low - 1) / p
+        uint64_t mult = (q_low == 0) ? 0 : 1 + (q_low - 1) / p;
+        uint64_t first = mult * p; 
+        if ((first & 1) == 0) first += p;
+        if (p <= q_high / p && first < p * p) first = p * p;
+        if ((first & 1) == 0) first += p;
+        if (first > q_high) continue;
+
+        uint64_t first_bit_offset = first - q_low;
+        int64_t first_bit = (int64_t)(first_bit_offset / 2);
+        if (first_bit >= (int64_t)tile_odd_end) continue;
+
+        if (first_bit < (int64_t)tile_odd_start) {
+            int64_t delta_bits = tile_odd_start - first_bit;
+            int64_t steps = (delta_bits + (int64_t)p - 1) / (int64_t)p;
+            if (steps > 0 && (int64_t)p > INT64_MAX / steps) continue;
+            first_bit += steps * (int64_t)p;
+        }
+
+        for (int64_t bit = first_bit; bit < (int64_t)tile_odd_end; bit += (int64_t)p) {
+            uint64_t local_bit = (uint64_t)(bit - tile_odd_start);
+            sh_tile[local_bit / 64] &= ~(1ULL << (local_bit % 64));
+        }
+    }
+    __syncthreads();
+
+    uint64_t global_word_offset = tile_odd_start / 64;
+    for (uint64_t w = threadIdx.x; w < tile_word_count; w += blockDim.x) {
+        d_seg_bits[global_word_offset + w] = sh_tile[w];
+    }
+}
+
+__global__ void goldbach_phase1_kernel(
+    const uint64_t* __restrict__ d_small, uint64_t small_high,
+    const uint64_t* __restrict__ d_seg_bits, uint64_t q_low, uint64_t q_high,
+    uint64_t seg_even_start, uint64_t seg_even_count,
+    const uint64_t* __restrict__ p_batch, uint64_t p_batch_size,
+    uint8_t* __restrict__ d_verified)
+{
+    uint64_t tid = blockIdx.x * blockDim.x + threadIdx.x;
+    if (tid >= seg_even_count) return;
     if (d_verified[tid]) return;
 
     uint64_t n = seg_even_start + tid * 2;
 
     for (uint64_t i = 0; i < p_batch_size; i++) {
         uint64_t p = p_batch[i];
-
-        // Batch is sorted -- once p > n/2 no point continuing
-        if (p > n / 2) break;
-
+        if (p > n / 2) break; 
         uint64_t q = n - p;
 
-        if (is_prime_q(q, d_small, small_high,
-                          d_seg, seg_low, seg_high)) {
+        if (is_prime_q(q, d_small, small_high, d_seg_bits, q_low, q_high)) {
             d_verified[tid] = 1;
             return;
         }
@@ -174,517 +228,324 @@ __global__ void goldbach_phase1_kernel(
 }
 
 // -------------------------------------------------------
-// CPU trial division primality test.
-// Used in Phase 2 only -- expected to be called rarely.
+// Phase 2 (CPU Fallback) logic
 // -------------------------------------------------------
-static bool cpu_is_prime(uint64_t n) {
+static const uint64_t PHASE2_SIEVE_LIMIT = 100'000'000ULL;
+
+static std::vector<uint64_t> generate_cpu_primes(uint64_t limit) {
+    if (limit < 2) return {};
+    std::vector<bool> is_prime(limit + 1, true);
+    is_prime[0] = is_prime[1] = false;
+    
+    for (uint64_t i = 2; i * i <= limit; i++) {
+        if (is_prime[i]) {
+            for (uint64_t j = i * i; j <= limit; j += i) is_prime[j] = false;
+        }
+    }
+    
+    std::vector<uint64_t> primes;
+    primes.reserve(limit / 10);
+    for (uint64_t i = 2; i <= limit; i++) {
+        if (is_prime[i]) primes.push_back(i);
+    }
+    return primes;
+}
+
+static bool cpu_miller_rabin(uint64_t n) {
     if (n < 2) return false;
-    if (n == 2) return true;
-    if ((n & 1) == 0) return false;
-    uint64_t sq = (uint64_t)std::sqrt((double)n);
-    for (uint64_t d = 3; d <= sq; d += 2)
-        if (n % d == 0) return false;
+    if (n == 2 || n == 3) return true;
+    if (n % 2 == 0) return false;
+    
+    uint64_t d = n - 1, r = 0;
+    while ((d & 1) == 0) { d >>= 1; r++; }
+    
+    const uint64_t witnesses[] = {2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37};
+    for (int i = 0; i < 12; i++) {
+        if (witnesses[i] >= n) continue;
+        
+        uint64_t x = 1, base = witnesses[i] % n;
+        uint64_t exp = d;
+        while (exp > 0) {
+            if (exp & 1) x = (uint64_t)((__uint128_t)x * base % n);
+            base = (uint64_t)((__uint128_t)base * base % n);
+            exp >>= 1;
+        }
+        
+        if (x == 1 || x == n - 1) continue;
+        
+        bool witness = false;
+        for (uint64_t j = 0; j < r - 1; j++) {
+            x = (uint64_t)((__uint128_t)x * x % n);
+            if (x == n - 1) {
+                witness = true;
+                break;
+            }
+        }
+        if (!witness) return false;
+    }
     return true;
 }
 
-// -------------------------------------------------------
-// Phase 2: truly exhaustive CPU fallback.
-// Tests ALL odd p from 3 to n/2, plus p=2.
-// No bound on p -- mathematically rigorous.
-// Expected to never be called at our target scales.
-// -------------------------------------------------------
-static bool cpu_exhaustive_check(uint64_t n) {
-    // Try p=2 first
-    if (cpu_is_prime(n - 2)) return true;
-
-    // Try all odd p from 3 to n/2
-    for (uint64_t p = 3; p <= n / 2; p += 2) {
-        if (cpu_is_prime(p) && cpu_is_prime(n - p))
-            return true;
+static bool cpu_optimized_check(uint64_t n, const std::vector<uint64_t>& cpu_primes) {
+    for (uint64_t p : cpu_primes) {
+        if (p > n / 2) break;
+        uint64_t q = n - p;
+        
+        if (q <= PHASE2_SIEVE_LIMIT) {
+            if (std::binary_search(cpu_primes.begin(), cpu_primes.end(), q)) return true;
+        } else {
+            if (cpu_miller_rabin(q)) return true;
+        }
     }
     return false;
 }
 
 // -------------------------------------------------------
-// Build segment prime bitset for [seg_low, seg_high].
+// GPU Worker Thread (Dynamic Load Balancing)
 // -------------------------------------------------------
-static std::vector<uint64_t> build_segment_bitset(
-    uint64_t seg_low,
-    uint64_t seg_high,
-    const std::vector<uint64_t>& small_primes)
+void run_gpu_worker(
+    int device_id,
+    uint64_t LIMIT,
+    uint64_t SEG_SIZE,
+    uint64_t P_SMALL,
+    uint64_t P_BATCH,
+    uint64_t small_high,
+    const PrimeBitset& small_bitset,
+    const std::vector<uint64_t>& small_primes,
+    const std::vector<uint64_t>& gpu_primes,
+    const std::vector<uint64_t>& cpu_primes,
+    const Options& opt)
 {
-    if (seg_low % 2 == 0) seg_low++;
+    CUDA_CHECK(cudaSetDevice(device_id));
+    cudaStream_t stream;
+    CUDA_CHECK(cudaStreamCreate(&stream));
 
-    uint64_t num_odds  = (seg_high - seg_low) / 2 + 1;
-    uint64_t num_words = (num_odds + 63) / 64;
-    std::vector<uint64_t> words(num_words, ~0ULL);
+    // 1. Device Memory Allocations
+    size_t small_bytes = small_bitset.word_count() * sizeof(uint64_t);
+    uint64_t* d_small = nullptr;
+    CUDA_CHECK(cudaMalloc(&d_small, small_bytes));
+    CUDA_CHECK(cudaMemcpyAsync(d_small, small_bitset.data(), small_bytes, cudaMemcpyHostToDevice, stream));
 
-    for (uint64_t p : small_primes) {
-        if (p * p > seg_high) break;
+    uint64_t small_prime_count = small_primes.size();
+    uint64_t* d_small_primes = nullptr;
+    CUDA_CHECK(cudaMalloc(&d_small_primes, small_prime_count * sizeof(uint64_t)));
+    CUDA_CHECK(cudaMemcpyAsync(d_small_primes, small_primes.data(), small_prime_count * sizeof(uint64_t), cudaMemcpyHostToDevice, stream));
 
-        uint64_t first = ((seg_low + p - 1) / p) * p;
-        if (first % 2 == 0) first += p;
-        if (first < p * p) {
-            first = p * p;
-            if (first % 2 == 0) first += p;
+    uint64_t max_q_span = 2 * SEG_SIZE + P_SMALL;
+    uint64_t max_odds = (max_q_span + 1) / 2;
+    uint64_t seg_words = (max_odds + 63) / 64;
+    size_t seg_bytes = seg_words * sizeof(uint64_t);
+
+    uint64_t* d_seg_bits  = nullptr;
+    uint8_t*  d_verified  = nullptr;
+    uint64_t* d_p_batch   = nullptr;
+    uint32_t* d_unverified_count = nullptr;
+
+    CUDA_CHECK(cudaMalloc(&d_seg_bits, seg_bytes));
+    CUDA_CHECK(cudaMalloc(&d_verified, SEG_SIZE));
+    CUDA_CHECK(cudaMalloc(&d_p_batch, P_BATCH * sizeof(uint64_t)));
+    CUDA_CHECK(cudaMalloc(&d_unverified_count, sizeof(uint32_t)));
+
+    CUDA_CHECK(cudaStreamSynchronize(stream));
+
+    // 2. Main Work Loop (Dynamic Segment Stealing)
+    while (!g_failure.load(std::memory_order_relaxed)) {
+        
+        // Atomically fetch the next segment block
+        uint64_t seg_start = g_next_segment_start.fetch_add(SEG_SIZE * 2, std::memory_order_relaxed);
+        if (seg_start > LIMIT) break; // All segments processed
+
+        uint64_t seg_end = std::min(seg_start + SEG_SIZE * 2 - 2, LIMIT);
+        uint64_t seg_even_count = (seg_end - seg_start) / 2 + 1;
+
+        uint64_t q_low = (seg_start > P_SMALL ? seg_start - P_SMALL : 3);
+        if ((q_low & 1) == 0) q_low++;
+        uint64_t q_high = (seg_end < UINT64_MAX - 1) ? seg_end + 1 : seg_end;
+        if ((q_high & 1) == 0) q_high++;
+
+        uint64_t num_odds = (q_high - q_low) / 2 + 1;
+        uint32_t num_tiles = (uint32_t)((num_odds + TILE_ODDS - 1) / TILE_ODDS);
+        size_t shared_bytes = (TILE_ODDS / 64) * sizeof(uint64_t);
+
+        // A. Sieve Segment
+        tiled_sieve_segment_kernel<<<num_tiles, THREADS_PER_BLOCK, shared_bytes, stream>>>(
+            q_low, q_high, d_small_primes, small_prime_count, d_seg_bits);
+        CUDA_CHECK(cudaGetLastError());
+
+        // B. Verification Batches
+        CUDA_CHECK(cudaMemsetAsync(d_verified, 0, seg_even_count, stream));
+        uint32_t blocks = (uint32_t)((seg_even_count + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK);
+
+        for (uint64_t bi = 0; bi < gpu_primes.size(); bi += P_BATCH) {
+            uint64_t bsize = std::min(P_BATCH, (uint64_t)gpu_primes.size() - bi);
+
+            CUDA_CHECK(cudaMemcpyAsync(d_p_batch, gpu_primes.data() + bi, bsize * sizeof(uint64_t), cudaMemcpyHostToDevice, stream));
+
+            goldbach_phase1_kernel<<<blocks, THREADS_PER_BLOCK, 0, stream>>>(
+                d_small, small_high, d_seg_bits, q_low, q_high,
+                seg_start, seg_even_count, d_p_batch, bsize, d_verified);
+            CUDA_CHECK(cudaGetLastError());
         }
-        if (first > seg_high) continue;
 
-        for (uint64_t j = first; j <= seg_high; j += 2 * p) {
-            uint64_t bit_pos  = (j - seg_low) / 2;
-            uint64_t word_idx = bit_pos / 64;
-            uint64_t bit_idx  = bit_pos % 64;
-            words[word_idx]  &= ~(1ULL << bit_idx);
+        // C. Check Phase 2 requirement
+        uint32_t unverified_count = 0;
+        CUDA_CHECK(cudaMemsetAsync(d_unverified_count, 0, sizeof(uint32_t), stream));
+
+        uint32_t count_blocks = (uint32_t)((seg_even_count + 255) / 256);
+        count_unverified_kernel<<<count_blocks, 256, 0, stream>>>(
+            d_verified, seg_even_count, d_unverified_count);
+
+        CUDA_CHECK(cudaMemcpyAsync(&unverified_count, d_unverified_count, sizeof(uint32_t), cudaMemcpyDeviceToHost, stream));
+        CUDA_CHECK(cudaStreamSynchronize(stream));
+
+        // D. CPU Phase 2 Processing
+        if (unverified_count > 0) {
+            std::vector<uint8_t> verified(seg_even_count);
+            CUDA_CHECK(cudaMemcpy(verified.data(), d_verified, seg_even_count, cudaMemcpyDeviceToHost));
+
+            for (uint64_t i = 0; i < seg_even_count; i++) {
+                if (!verified[i]) {
+                    uint64_t n = seg_start + i * 2;
+                    g_total_phase2_count.fetch_add(1, std::memory_order_relaxed);
+
+                    safe_log("[GPU ", device_id, "] Phase 2 fallback for n = ", n, "...");
+                    
+                    if (!cpu_optimized_check(n, cpu_primes)) {
+                        g_failure.store(true, std::memory_order_relaxed);
+                        g_failure_n.store(n, std::memory_order_relaxed);
+                        break;
+                    } else {
+                        safe_log("[GPU ", device_id, "] Phase 2 verified n = ", n);
+                    }
+                }
+            }
         }
     }
 
-    return words;
+    // 3. Cleanup
+    CUDA_CHECK(cudaStreamDestroy(stream));
+    CUDA_CHECK(cudaFree(d_small));
+    CUDA_CHECK(cudaFree(d_small_primes));
+    CUDA_CHECK(cudaFree(d_seg_bits));
+    CUDA_CHECK(cudaFree(d_verified));
+    CUDA_CHECK(cudaFree(d_p_batch));
+    CUDA_CHECK(cudaFree(d_unverified_count));
 }
 
+// -------------------------------------------------------
+// Program Entry
+// -------------------------------------------------------
 void print_usage(const char* prog) {
-    std::cout << "Goldbach Conjecture Segmented Verifier (GPU)\n\n";
-
-    std::cout << "Usage:\n"
-              << "  " << prog << " <LIMIT> [SEG_SIZE] [P_SMALL]\n"
-              << "  " << prog << " <LIMIT> [--seg-size=N] [--p-small=N]\n\n";
-
-    std::cout << "Required:\n"
-              << "  LIMIT            Max even integer to check (e.g., 1000000000)\n\n";
-
-    std::cout << "Optional positional arguments (legacy):\n"
-              << "  SEG_SIZE         Even integers per segment (default: 10,000,000)\n"
-              << "  P_SMALL          GPU prime search bound (default: 1,000,000)\n\n";
-
-    std::cout << "Optional flags:\n"
-              << "  --seg-size=N     Override SEG_SIZE\n"
-              << "  --p-small=N      Override P_SMALL\n"
-              << "  --batch-size=N   Primes per GPU batch (default: 100000)\n"
-              << "  --copy-mode=MODE {full, failures, none}\n"
-              << "  --streams=N      Number of CUDA streams (default: 1)\n"
-              << "  --async          Enable async kernel launches\n"
-              << "  -h, --help       Show this help message\n";
-}
-
-void check_vram_limit(uint64_t seg_size, uint64_t small_bytes) {
-    // Hardware VRAM is automatically checked against SEG_SIZE to prevent OOM.
-    int device;
-    cudaGetDevice(&device);
-    cudaDeviceProp prop;
-    cudaGetDeviceProperties(&prop, device);
-
-    uint64_t verified_bytes = seg_size;
-    uint64_t segment_bitset_bytes = (seg_size + 1) / 8;
-    uint64_t p_batch_bytes = 100000ULL * sizeof(uint64_t);
-
-    uint64_t total_required =
-        verified_bytes +
-        segment_bitset_bytes +
-        p_batch_bytes +
-        small_bytes +
-        (50ULL * 1024 * 1024); // 50 MB safety margin
-
-    if (total_required > prop.totalGlobalMem) {
-        std::cerr << "\n[!] ERROR: SEG_SIZE (" << seg_size << ") requires approx "
-                  << total_required / (1024*1024) << " MB VRAM.\n";
-        std::cerr << "[!] This GPU (" << prop.name << ") only has "
-                  << prop.totalGlobalMem / (1024*1024) << " MB available.\n";
-        std::cerr << "[!] Reduce SEG_SIZE or use a smaller LIMIT.\n";
-        std::exit(1);
-    }
-
-    std::cout << "[Hardware] GPU: " << prop.name
-              << " (" << prop.totalGlobalMem / (1024*1024) << " MB VRAM)\n";
+    std::cout << "Goldbach Multi-GPU Verifier\n\n"
+              << "Usage: " << prog << " <LIMIT>[--seg-size=N] [--p-small=N] [--gpus=N]\n\n";
 }
 
 int main(int argc, char** argv) {
-    if (argc < 2) {
-        print_usage(argv[0]);
-        return 0;
-    }
+    if (argc < 2) { print_usage(argv[0]); return 0; }
 
     Options opt;
     uint64_t LIMIT = 0;
     uint64_t SEG_SIZE = 10'000'000ULL;
-    uint64_t P_SMALL  = 1'000'000ULL;
+    uint64_t P_SMALL = 1'000'000ULL;
+    int requested_gpus = -1;
 
     std::vector<std::string> positional;
 
-    // -----------------------------
-    // Pass 1: collect flags + positional
-    // -----------------------------
     for (int i = 1; i < argc; i++) {
         std::string arg = argv[i];
-
-        if (arg == "-h" || arg == "--help") {
-            print_usage(argv[0]);
-            return 0;
-        }
-
-        if (arg == "--async") {
-            opt.async = true;
-            continue;
-        }
-
-        if (arg.rfind("--batch-size=", 0) == 0) {
-            opt.batchSize = std::stoull(arg.substr(13));
-            continue;
-        }
-
-        if (arg.rfind("--copy-mode=", 0) == 0) {
-            std::string m = arg.substr(12);
-            if (m == "full") opt.copyMode = Options::FULL;
-            else if (m == "failures") opt.copyMode = Options::FAILURES;
-            else if (m == "none") opt.copyMode = Options::NONE;
-            else {
-                std::cerr << "Invalid --copy-mode value\n";
-                return 1;
-            }
-            continue;
-        }
-
-        if (arg.rfind("--streams=", 0) == 0) {
-            opt.streams = std::stoi(arg.substr(10));
-            continue;
-        }
-
-        if (arg.rfind("--seg-size=", 0) == 0) {
-            SEG_SIZE = std::stoull(arg.substr(11));
-            continue;
-        }
-
-        if (arg.rfind("--p-small=", 0) == 0) {
-            P_SMALL = std::stoull(arg.substr(10));
-            continue;
-        }
-
-        // Otherwise it's positional
+        if (arg == "-h" || arg == "--help") { print_usage(argv[0]); return 0; }
+        if (arg == "--async") { opt.async = true; continue; }
+        if (arg.rfind("--batch-size=", 0) == 0) { opt.batchSize = std::stoull(arg.substr(13)); continue; }
+        if (arg.rfind("--gpus=", 0) == 0) { requested_gpus = std::stoi(arg.substr(7)); continue; }
+        if (arg.rfind("--seg-size=", 0) == 0) { SEG_SIZE = std::stoull(arg.substr(11)); continue; }
+        if (arg.rfind("--p-small=", 0) == 0) { P_SMALL = std::stoull(arg.substr(10)); continue; }
         positional.push_back(arg);
     }
 
-    // -----------------------------
-    // Pass 2: parse positional arguments
-    // -----------------------------
-    try {
-        if (positional.size() < 1) {
-            std::cerr << "Error: LIMIT is required.\n";
-            return 1;
-        }
+    if (positional.empty()) { std::cerr << "Error: LIMIT required.\n"; return 1; }
+    LIMIT = std::stoull(positional[0]);
 
-        LIMIT = std::stoull(positional[0]);
-
-        // Legacy positional overrides
-        if (positional.size() > 1)
-            SEG_SIZE = std::stoull(positional[1]);
-
-        if (positional.size() > 2)
-            P_SMALL = std::stoull(positional[2]);
-
-    } catch (...) {
-        std::cerr << "Error: Invalid numeric argument. Use -h for help.\n";
-        return 1;
-    }
-
-    // Now LIMIT, SEG_SIZE, P_SMALL, and opt.* are all set correctly.
-
-
-    if (LIMIT < 4) {
-        std::cerr << "Error: LIMIT must be >= 4.\n";
-        return 1;
-    }
-
+    if (LIMIT < 4) { std::cerr << "Error: LIMIT must be >= 4.\n"; return 1; }
     if (LIMIT % 2 != 0) LIMIT--;
+    if (P_SMALL > 4'000'000'000ULL) { std::cerr << "Error: P_SMALL must be <= 4B.\n"; return 1; }
+    if (P_SMALL > LIMIT) P_SMALL = LIMIT;
 
+    int device_count = 0;
+    CUDA_CHECK(cudaGetDeviceCount(&device_count));
+    if (device_count == 0) { std::cerr << "No CUDA devices found.\n"; return 1; }
 
-    // Calculate small_high
-    uint64_t small_high = std::max((uint64_t)std::sqrt((double)LIMIT) + 1, P_SMALL);
+    int use_gpus = (requested_gpus <= 0 || requested_gpus > device_count) ? device_count : requested_gpus;
+    std::cout << "Using " << use_gpus << " GPU(s) out of " << device_count << "\n";
+
+    uint64_t sqrt_limit = 0;
+    if (LIMIT >= 4) {
+        uint64_t low = 1, high = LIMIT;
+        if (high > (1ULL << 32)) high = (1ULL << 32); 
+        while (low <= high) {
+            uint64_t mid = low + (high - low) / 2;
+            if (mid <= LIMIT / mid) { sqrt_limit = mid; low = mid + 1; }
+            else { high = mid - 1; }
+        }
+    }
+
+    uint64_t small_high = std::max(sqrt_limit + 1, P_SMALL);
     if (small_high % 2 == 0) small_high++;
 
-    // Calculate exact bytes needed for the small primes bitset
-    uint64_t num_small_odds = (small_high - 3) / 2 + 1;
-    uint64_t small_bytes = ((num_small_odds + 63) / 64) * sizeof(uint64_t);
-
-    // Pass small_bytes into check function
-    check_vram_limit(SEG_SIZE, small_bytes);
-
-    // const uint64_t P_BATCH  = 100'000ULL;       // primes per kernel launch
-    uint64_t P_BATCH = opt.batchSize;
-
-
-    std::cout << "Goldbach segmented verifier (Phase 1: GPU, Phase 2: CPU)\n";
-    std::cout << "Checking all even n in [4, " << LIMIT << "]\n";
-    std::cout << "P_SMALL = " << P_SMALL
-              << ", exhaustive CPU fallback for any remainder\n\n";
-
-    // -------------------------------------------------------
-    // Step 1: Build small primes bitset
-    // Cover both sqrt(LIMIT) for segment sieve
-    // and P_SMALL for GPU primality lookups
-    // -------------------------------------------------------
-
-    std::cout << "Building small primes bitset up to "
-              << small_high << "...\n";
-    auto t0 = std::chrono::high_resolution_clock::now();
-
+    std::cout << "Building small primes bitset up to " << small_high << "...\n";
+    auto t0 = now();
     PrimeBitset small_bitset = build_prime_bitset(small_high);
-
-    auto t1 = std::chrono::high_resolution_clock::now();
-    std::cout << "Built in "
-              << std::chrono::duration<double, std::milli>(t1-t0).count()
-              << " ms (" << small_bitset.memory_bytes() / 1024 << " KB)\n\n";
-
-    // Collect small primes as sorted list
+    
     std::vector<uint64_t> small_primes;
     small_primes.reserve(small_high / 10);
     if (small_bitset.is_prime(2)) small_primes.push_back(2);
-    for (uint64_t i = 3; i <= small_high; i += 2)
-        if (small_bitset.is_prime(i))
-            small_primes.push_back(i);
+    for (uint64_t i = 3; i <= small_high; i += 2) {
+        if (small_bitset.is_prime(i)) small_primes.push_back(i);
+    }
 
-    // GPU primes: only those <= P_SMALL
     std::vector<uint64_t> gpu_primes;
-    for (uint64_t p : small_primes)
+    for (uint64_t p : small_primes) {
         if (p <= P_SMALL) gpu_primes.push_back(p);
-
-    std::cout << "GPU primes (p <= " << P_SMALL << "): "
-              << gpu_primes.size() << "\n\n";
-
-    // -------------------------------------------------------
-    // Step 2: Copy small primes bitset to GPU -- permanent
-    // -------------------------------------------------------
-    small_bytes = small_bitset.word_count() * sizeof(uint64_t);
-    uint64_t* d_small = nullptr;
-    CUDA_CHECK(cudaMalloc(&d_small, small_bytes));
-    CUDA_CHECK(cudaMemcpy(d_small, small_bitset.data(), small_bytes,
-                          cudaMemcpyHostToDevice));
-    std::cout << "Small primes in GPU ("
-              << small_bytes / 1024 << " KB)\n";
-
-    // -------------------------------------------------------
-    // Step 3: Allocate GPU buffers
-    //
-    // d_seg: segment prime bitset
-    //   odd range is [seg_start-1, seg_end+1]
-    //   width ~ 2*SEG_SIZE, so SEG_SIZE+1 odd numbers
-    //
-    // d_verified: one byte per even n in segment
-    //   max size = SEG_SIZE
-    //
-    // d_p_batch: current prime batch
-    // -------------------------------------------------------
-    uint64_t seg_odd_count = SEG_SIZE + 1;
-    uint64_t seg_words     = (seg_odd_count + 63) / 64;
-    uint64_t seg_bytes     = seg_words * sizeof(uint64_t);
-
-    uint64_t* d_seg      = nullptr;
-    uint8_t*  d_verified = nullptr;
-    uint64_t* d_p_batch  = nullptr;
-
-    CUDA_CHECK(cudaMalloc(&d_seg,      seg_bytes));
-    CUDA_CHECK(cudaMalloc(&d_verified, SEG_SIZE));
-    CUDA_CHECK(cudaMalloc(&d_p_batch,  P_BATCH * sizeof(uint64_t)));
-
-    std::cout << "Segment buffer: " << seg_bytes / 1024 / 1024 << " MB\n";
-    std::cout << "Verified buffer: " << SEG_SIZE / 1024 / 1024 << " MB\n\n";
-
-    // Create CUDA streams (at least 1)
-    if (opt.streams < 1) opt.streams = 1;
-    std::vector<cudaStream_t> streams(opt.streams);
-    for (int s = 0; s < opt.streams; ++s) {
-        CUDA_CHECK(cudaStreamCreate(&streams[s]));
     }
 
+    std::cout << "Pre-generating CPU primes up to " << PHASE2_SIEVE_LIMIT << "...\n";
+    std::vector<uint64_t> cpu_primes = generate_cpu_primes(PHASE2_SIEVE_LIMIT);
 
-    // -------------------------------------------------------
-    // Step 4: Main loop -- process segments
-    // -------------------------------------------------------
-    int      threads_per_block  = 256;
-    uint64_t total_even         = (LIMIT - 4) / 2 + 1;
-    uint64_t total_processed    = 0;
-    uint64_t total_failures     = 0;
-    uint64_t total_phase2_count = 0;
+    auto t1 = now();
+    std::cout << "Initialization completed in " 
+              << std::chrono::duration<double, std::milli>(t1 - t0).count() << " ms.\n\n";
+    std::cout << "Launching Multi-GPU Verifier...\n";
 
-    auto t_main = std::chrono::high_resolution_clock::now();
+    auto t_main_start = now();
 
-    uint64_t seg_start = 4;
-    uint64_t seg_index = 0;
-
-
-    while (seg_start <= LIMIT) {
-        cudaStream_t stream = streams[seg_index % streams.size()];
-
-        uint64_t seg_end = std::min(seg_start + SEG_SIZE * 2 - 2, LIMIT);
-
-        // Odd range for segment bitset
-        // Must cover all q = n-p that fall in this range
-        uint64_t seg_low  = (seg_start >= 3) ? seg_start - 1 : 3;
-        if (seg_low % 2 == 0) seg_low++;
-        uint64_t seg_high = seg_end + 1;
-        if (seg_high % 2 == 0) seg_high++;
-
-        uint64_t seg_even_count = (seg_end - seg_start) / 2 + 1;
-
-        // Build segment bitset on CPU and copy to GPU
-        auto seg_vec = build_segment_bitset(seg_low, seg_high,
-                                             small_primes);
-
-        // Safety check -- never copy more than allocated
-        uint64_t copy_words = std::min(seg_vec.size(), (size_t)seg_words);
-        CUDA_CHECK(cudaMemcpy(d_seg, seg_vec.data(),
-                              copy_words * sizeof(uint64_t),
-                              cudaMemcpyHostToDevice));
-
-        // Initialize verified flags to zero
-        CUDA_CHECK(cudaMemset(d_verified, 0, seg_even_count));
-
-        // Phase 1: GPU -- process gpu_primes in batches
-        uint64_t blocks = (seg_even_count + threads_per_block - 1)
-                          / threads_per_block;
-
-        for (uint64_t bi = 0; bi < gpu_primes.size(); bi += P_BATCH) {
-            uint64_t bend  = std::min(bi + P_BATCH,
-                                      (uint64_t)gpu_primes.size());
-            uint64_t bsize = bend - bi;
-
-            if (opt.async) {
-                CUDA_CHECK(cudaMemcpyAsync(d_p_batch,
-                                        gpu_primes.data() + bi,
-                                        bsize * sizeof(uint64_t),
-                                        cudaMemcpyHostToDevice,
-                                        stream));
-
-                goldbach_phase1_kernel<<<(uint32_t)blocks,
-                                        threads_per_block,
-                                        0, stream>>>(
-                    d_small,   small_high,
-                    d_seg,     seg_low, seg_high,
-                    seg_start, seg_even_count,
-                    d_p_batch, bsize,
-                    d_verified);
-
-                CUDA_CHECK(cudaGetLastError());
-            } else {
-                CUDA_CHECK(cudaMemcpy(d_p_batch,
-                                    gpu_primes.data() + bi,
-                                    bsize * sizeof(uint64_t),
-                                    cudaMemcpyHostToDevice));
-
-                goldbach_phase1_kernel<<<(uint32_t)blocks,
-                                        threads_per_block>>>(
-                    d_small,   small_high,
-                    d_seg,     seg_low, seg_high,
-                    seg_start, seg_even_count,
-                    d_p_batch, bsize,
-                    d_verified);
-
-                CUDA_CHECK(cudaGetLastError());
-                CUDA_CHECK(cudaDeviceSynchronize());
-            }
-        }
-
-        // Copy verified flags back
-        std::vector<uint8_t> verified(seg_even_count);
-        // CUDA_CHECK(cudaMemcpy(verified.data(), d_verified,
-        //                       seg_even_count,
-        //                       cudaMemcpyDeviceToHost));
-        // Optimization: only copy back failures if requested
-        if (opt.copyMode == Options::FULL) {
-            if (opt.async) {
-                CUDA_CHECK(cudaMemcpyAsync(verified.data(), d_verified,
-                                        seg_even_count,
-                                        cudaMemcpyDeviceToHost,
-                                        stream));
-                CUDA_CHECK(cudaStreamSynchronize(stream));
-            } else {
-                CUDA_CHECK(cudaMemcpy(verified.data(), d_verified,
-                                    seg_even_count,
-                                    cudaMemcpyDeviceToHost));
-            }
-        }
-
-        else if (opt.copyMode == Options::FAILURES) {
-            // Only copy a tiny flag buffer (1 byte per segment)
-            uint8_t any_unverified = 0;
-            CUDA_CHECK(cudaMemcpy(&any_unverified, d_verified,
-                                1, cudaMemcpyDeviceToHost));
-            if (!any_unverified) {
-                // No failures → skip full copy
-                verified.assign(seg_even_count, 1);
-            } else {
-                CUDA_CHECK(cudaMemcpy(verified.data(), d_verified,
-                                    seg_even_count,
-                                    cudaMemcpyDeviceToHost));
-            }
-        }
-        else if (opt.copyMode == Options::NONE) {
-            // Skip copy entirely; assume GPU verified everything
-            verified.assign(seg_even_count, 1);
-        }
-
-        // Phase 2: CPU exhaustive fallback for any unverified n
-        for (uint64_t i = 0; i < seg_even_count; i++) {
-            if (verified[i]) continue;
-
-            uint64_t n = seg_start + i * 2;
-            total_phase2_count++;
-
-            std::cout << "\n  Phase 2 fallback for n = " << n << "...\n";
-            bool found = cpu_exhaustive_check(n);
-
-            if (!found) {
-                std::cout << "FAILURE: no Goldbach partition for n = "
-                          << n << "\n";
-                total_failures++;
-            } else {
-                std::cout << "  Phase 2 verified n = " << n << "\n";
-            }
-        }
-
-        total_processed += seg_even_count;
-        seg_start        = seg_end + 2;
-        seg_index++;
-
-        double pct = 100.0 * total_processed / total_even;
-        std::cout << "  Progress: " << total_processed
-                  << " / " << total_even
-                  << " (" << pct << "%)\r" << std::flush;
+    // Launch Worker Threads
+    std::vector<std::thread> workers;
+    for (int g = 0; g < use_gpus; ++g) {
+        workers.emplace_back(
+            run_gpu_worker,
+            g, LIMIT, SEG_SIZE, P_SMALL, opt.batchSize,
+            small_high, std::cref(small_bitset),
+            std::cref(small_primes), std::cref(gpu_primes), std::cref(cpu_primes),
+            std::cref(opt)
+        );
     }
 
-    double total_ms = std::chrono::duration<double, std::milli>(
-        std::chrono::high_resolution_clock::now() - t_main).count();
-
-    std::cout << "\n";
-
-    // -------------------------------------------------------
-    // Step 5: Summary
-    // -------------------------------------------------------
-    std::cout << "\n--- Summary ---\n";
-    std::cout << "Even numbers checked  : " << total_even         << "\n";
-    std::cout << "Failures              : " << total_failures     << "\n";
-    std::cout << "Phase 2 fallbacks     : " << total_phase2_count << "\n";
-    std::cout << "P_SMALL               : " << P_SMALL            << "\n";
-    std::cout << "Total time            : " << total_ms           << " ms\n";
-
-    if (total_failures == 0) {
-        std::cout << "\nAll even numbers up to " << LIMIT
-                  << " satisfy Goldbach. ✓\n";
-        if (total_phase2_count == 0)
-            std::cout << "(All verified by GPU with p <= "
-                      << P_SMALL << ")\n";
-        else
-            std::cout << "(" << total_phase2_count
-                      << " required CPU exhaustive fallback)\n";
+    // Join threads
+    for (auto& t : workers) {
+        if (t.joinable()) t.join();
     }
 
-    // Cleanup
-    for (auto& s : streams) {
-        CUDA_CHECK(cudaStreamDestroy(s));
+    auto t_main_end = now();
+    double total_ms = std::chrono::duration<double, std::milli>(t_main_end - t_main_start).count();
+
+    if (g_failure.load()) {
+        std::cout << "\n[!] Goldbach FAILED at n = " << g_failure_n.load() << "\n";
+        return 1;
     }
 
-    CUDA_CHECK(cudaFree(d_small));
-    CUDA_CHECK(cudaFree(d_seg));
-    CUDA_CHECK(cudaFree(d_verified));
-    CUDA_CHECK(cudaFree(d_p_batch));
+    std::cout << "\n--- Verification Complete ---\n";
+    std::cout << "All even numbers up to " << LIMIT << " satisfy Goldbach. ✓\n";
+    std::cout << "Total time          : " << (total_ms / 1000.0) << " seconds\n";
+    std::cout << "Phase 2 fallbacks   : " << g_total_phase2_count.load() << "\n";
 
-
-    return (total_failures == 0) ? 0 : 1;
+    return 0;
 }
