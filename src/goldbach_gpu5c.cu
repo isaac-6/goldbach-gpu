@@ -172,6 +172,19 @@ __global__ void init_segment_bits_kernel(
     }
 }
 
+__global__ void count_unverified_kernel(
+    const uint8_t* __restrict__ d_verified,
+    uint64_t seg_even_count,
+    uint32_t* __restrict__ d_unverified_count)
+{
+    uint64_t tid = blockIdx.x * blockDim.x + threadIdx.x;
+    if (tid >= seg_even_count) return;
+
+    if (d_verified[tid] == 0) {
+        atomicAdd(d_unverified_count, 1u);
+    }
+}
+
 // -------------------------------------------------------
 // Configuration constants
 // -------------------------------------------------------
@@ -733,6 +746,9 @@ int main(int argc, char** argv) {
     uint8_t*  d_verified  = nullptr;
     uint64_t* d_p_batch   = nullptr;
 
+    uint32_t* d_unverified_count = nullptr;
+    CUDA_CHECK(cudaMalloc(&d_unverified_count, sizeof(uint32_t)));
+
     CUDA_CHECK(cudaMalloc(&d_seg_bits, seg_bytes));
     CUDA_CHECK(cudaMalloc(&d_verified, SEG_SIZE));
     CUDA_CHECK(cudaMalloc(&d_p_batch,  P_BATCH * sizeof(uint64_t)));
@@ -900,73 +916,66 @@ int main(int argc, char** argv) {
         CUDA_CHECK(cudaEventDestroy(k_start));
         CUDA_CHECK(cudaEventDestroy(k_end));
 
-        // 3) Copy verified flags back
-        std::vector<uint8_t> verified(seg_even_count);
-
+        // 3) Fast path: check if ANY unverified numbers exist
         auto t_copy_verified_start = now();
 
-        if (opt.copyMode == Options::FULL) {
+        uint32_t unverified_count = 0;
+        CUDA_CHECK(cudaMemsetAsync(d_unverified_count, 0, sizeof(uint32_t), stream));
+
+        // Launch one tiny reduction kernel (256 threads is enough)
+        uint64_t count_blocks = (seg_even_count + 255) / 256;
+        count_unverified_kernel<<<(uint32_t)count_blocks, 256, 0, stream>>>(
+            d_verified, seg_even_count, d_unverified_count);
+
+        CUDA_CHECK(cudaMemcpyAsync(&unverified_count, d_unverified_count,
+                                sizeof(uint32_t), cudaMemcpyDeviceToHost, stream));
+        CUDA_CHECK(cudaStreamSynchronize(stream));
+
+        std::vector<uint8_t> verified;
+        bool need_phase2 = (unverified_count > 0);
+
+        if (need_phase2) {
+            verified.resize(seg_even_count);
             if (opt.async) {
                 CUDA_CHECK(cudaMemcpyAsync(verified.data(), d_verified,
-                                           seg_even_count,
-                                           cudaMemcpyDeviceToHost,
-                                           stream));
+                                        seg_even_count, cudaMemcpyDeviceToHost, stream));
                 CUDA_CHECK(cudaStreamSynchronize(stream));
             } else {
                 CUDA_CHECK(cudaMemcpy(verified.data(), d_verified,
-                                      seg_even_count,
-                                      cudaMemcpyDeviceToHost));
+                                    seg_even_count, cudaMemcpyDeviceToHost));
             }
-        } else if (opt.copyMode == Options::FAILURES) {
-            // CRITICAL: Check if ANY number in segment is unverified
-            // We need to scan the entire d_verified array, not just d_verified[0]
-            // Use a small reduction on GPU or copy everything
-            // For correctness, we copy full array (safe approach)
-            // Alternative: implement GPU reduction kernel to find any 0
-            if (opt.async) {
-                CUDA_CHECK(cudaMemcpyAsync(verified.data(), d_verified,
-                                           seg_even_count,
-                                           cudaMemcpyDeviceToHost,
-                                           stream));
-                CUDA_CHECK(cudaStreamSynchronize(stream));
-            } else {
-                CUDA_CHECK(cudaMemcpy(verified.data(), d_verified,
-                                      seg_even_count,
-                                      cudaMemcpyDeviceToHost));
-            }
-        } else if (opt.copyMode == Options::NONE) {
-            verified.assign(seg_even_count, 1);
         }
 
         auto t_copy_verified_end = now();
-        double ms_copy_verified =
-            std::chrono::duration<double, std::milli>(t_copy_verified_end - t_copy_verified_start).count();
+        double ms_copy_verified = std::chrono::duration<double, std::milli>(
+            t_copy_verified_end - t_copy_verified_start).count();
         total_ms_copy_verified += ms_copy_verified;
 
         // 4) Phase 2: CPU fallback (optimized)
         auto t_phase2_start = now();
 
-        for (uint64_t i = 0; i < seg_even_count; i++) {
-            if (verified[i]) continue;
+        if (need_phase2) {
+            for (uint64_t i = 0; i < seg_even_count; i++) {
+                if (verified[i]) continue;
 
-            uint64_t n = seg_start + i * 2;
-            total_phase2_count++;
+                uint64_t n = seg_start + i * 2;
+                total_phase2_count++;
 
-            std::cout << "\n  Phase 2 fallback for n = " << n << "...\n";
-            bool found = cpu_optimized_check(n);
+                std::cout << "\n  Phase 2 fallback for n = " << n << "...\n";
+                bool found = cpu_optimized_check(n);
 
-            if (!found) {
-                std::cout << "FAILURE: no Goldbach partition for n = "
-                          << n << "\n";
-                total_failures++;
-            } else {
-                std::cout << "  Phase 2 verified n = " << n << "\n";
+                if (!found) {
+                    std::cout << "FAILURE: no Goldbach partition for n = " << n << "\n";
+                    total_failures++;
+                } else {
+                    std::cout << "  Phase 2 verified n = " << n << "\n";
+                }
             }
         }
 
         auto t_phase2_end = now();
-        double ms_phase2 =
-            std::chrono::duration<double, std::milli>(t_phase2_end - t_phase2_start).count();
+        double ms_phase2 = std::chrono::duration<double, std::milli>(
+            t_phase2_end - t_phase2_start).count();
         total_ms_phase2 += ms_phase2;
 
         total_processed += seg_even_count;
@@ -1023,6 +1032,7 @@ int main(int argc, char** argv) {
     CUDA_CHECK(cudaFree(d_seg_bits));
     CUDA_CHECK(cudaFree(d_verified));
     CUDA_CHECK(cudaFree(d_p_batch));
+    CUDA_CHECK(cudaFree(d_unverified_count));
 
     return (total_failures == 0) ? 0 : 1;
 }
