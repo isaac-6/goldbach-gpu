@@ -2,7 +2,7 @@
 ![Release](https://img.shields.io/github/v/release/isaac-6/goldbach-gpu)
 ![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)
 ![Language: C++](https://img.shields.io/badge/Language-C%2B%2B-blue.svg)
-![CUDA: 13.1](https://img.shields.io/badge/CUDA-13.1-green.svg)
+![CUDA: 13.0](https://img.shields.io/badge/CUDA-13.0-green.svg)
 
 # goldbach-gpu
 
@@ -23,16 +23,15 @@ hardware. **No counterexamples have been found in any computation.**
 The following figure shows total wall‑clock time to verify all even integers up to \(N\) using the three main implementations:
 
 - **CPU baseline** (`cpu_goldbach`)
-- **GPU global bitset** (`goldbach_gpu2`)
-- **GPU segmented verifier** (`goldbach_gpu3`)
+- **GPU** (`goldbach`)
 
-![Performance comparison of CPU, goldbach_gpu2, and goldbach_gpu3](assets/performance_plot.png)
+![Performance comparison of CPU, goldbach_gpu3, and goldbach (current)](assets/performance_plot.png)
 
-> **Desktop:** All even integers up to 10¹² verified on a single NVIDIA RTX 3070 (8 GB VRAM) in 41 minutes.
+> **Single GPU** All even integers up to 10¹² verified on a single NVIDIA RTX 5090 in 37 seconds.
 > 
-> **Cloud / HPC:** Verified 10¹² in just **9.4 minutes** on an 8× NVIDIA H100 cluster, demonstrating near-linear strong scaling.S
+> **Cloud / HPC:** Verification up to 10¹² in 18.8 seconds with 2x NVIDIA RTX 5090.
 
-This is achieved by our multi-worker, segmented double-sieve verifier that removes the VRAM ceiling of earlier designs and distributes work asynchronously across multiple PCIe/NVLink devices. See [Architecture](#architecture) and [Results](#results-summary) below.
+This is achieved by our multi-GPU, segmented double-sieve verifier with dynamic load balancing, GPU-tiled sieving, and optimized Phase 2 fallbacks. See [Architecture](#architecture) and [Results](#results-summary) below.
 
 ---
 
@@ -53,10 +52,8 @@ against the previous:
 
 | Tool | Method | Range | Hard limit |
 |------|--------|-------|------------|
+| `goldbach` | multi-GPU, segmented double-sieve | exhaustive | time only |
 | `cpu_goldbach` | CPU sieve + sequential scan | exhaustive | system RAM / time |
-| `goldbach_gpu2` | GPU, compact bitset (1 bit/odd) | exhaustive | VRAM (~10¹¹) |
-| `goldbach_gpu3` | GPU, segmented double-sieve | exhaustive | time only |
-| `goldbach_gpu3_multi` | multi-GPU, segmented double-sieve | exhaustive | time only |
 | `single_check` | GPU Miller-Rabin | single number | uint64_t (~1.8×10¹⁹) |
 | `big_check` | GMP + OpenMP | single number | time only |
 
@@ -77,6 +74,8 @@ the current segment, which would miss valid partitions. Each segment uses only
 ~60 MB VRAM regardless of total range. An exhaustive CPU fallback guarantees
 rigor for any number the GPU phase does not resolve; in all runs to date,
 this fallback has never been triggered.
+
+**goldbach**  (flagship) extends goldbach_gpu3 with multi-GPU support via lock-free work queues and thread-safe globals. It adds GPU-tiled sieving for segments, optimized Phase 2 (sieve to 10^8 + Miller-Rabin), overflow-safe operations (P_SMALL ≤ 4e9), and configurable CLI options (e.g., --seg-size, --gpus). Correctness is mathematically rigorous for n up to 2^64-1.
 
 **big_check** handles numbers of arbitrary digit count using GMP exact
 arithmetic and probabilistic Miller-Rabin (25 rounds, false positive
@@ -144,31 +143,21 @@ All compiled executables are located in the `build/bin/` directory.
 Useful as a correctness baseline. 
 Expected time: ~23 s at 10⁹, ~5 min at 10¹⁰.
 
-### GPU range verifier -- compact bitset (recommended up to 10¹⁰)
+### Flagship multi-GPU segmented verifier (recommended)
 ```bash
-./build/bin/goldbach_gpu2 10000000000
+./build/bin/goldbach 1000000000000 --seg-size=200000000 --p-small=1000000 --batch-size=2000000
 ```
-Requires VRAM ≥ N/16 bytes. Hardware VRAM is automatically checked at launch. 
-Expected time: ~1.3 s at 10⁹, ~25 s at 10¹⁰.
+No VRAM ceiling. Hardware VRAM is checked against the segment size at launch to ensure safe execution. Expected time: 36.5 s at 10¹² (1x RTX 5090).
 
-### GPU segmented verifier (recommended for 10¹¹ and beyond)
+To reproduce the 10¹² result with specific segmentation and prime bounds:
 ```bash
-./build/bin/goldbach_gpu3 1000000000000
-```
-No VRAM ceiling. Hardware VRAM is checked against the segment size at launch to ensure safe execution. Expected time: 41 min at 10¹².
-
-To reproduce the 10¹² result with specific segmentation and prime bounds, you can pass them directly via the CLI (`<LIMIT> [SEG_SIZE] [P_SMALL]`):
-```bash
-./build/bin/goldbach_gpu3 1000000000000 10000000 1000000
+./build/bin/goldbach 1000000000000 --seg-size=200000000 --p-small=1000000 --batch-size=2000000
 ```
 
-### For Multi-GPU / Cloud environments:
-You can specify the number of GPUs to use. The framework will spawn a worker thread for each device and load-balance segments asynchronously. Also works with --gpus=1.
+For Multi-GPU / Cloud environments (use all available GPUs with --gpus=-1):
 ```bash
-# Use all available GPUs
-./build/bin/goldbach_gpu3 1000000000000 10000000 1000000 --gpus=-1
+./build/bin/goldbach 1000000000000 --seg-size=200000000 --p-small=1000000 --batch-size=2000000 --gpus=2
 ```
-
 
 ### GPU single number checker (up to ~1.8×10¹⁹)
 ```bash
@@ -178,7 +167,7 @@ Uses deterministic Miller-Rabin with 12 witnesses. Returns a valid partition but
 
 ### Arbitrary precision checker (any size)
 ```bash
-./build/bin/big_check 100000000000000000000000000000000000000000000000000
+./build/bin/big_check 12321232123212321232123212321232
 ./build/bin/big_check "$(python3 -c "print('1' + '0'*1000)")"    # 10^1000
 ./build/bin/big_check "$(python3 -c "print('1' + '0'*10000)")"   # 10^10000
 ```
@@ -199,8 +188,17 @@ cd tests
 ---
 
 ## Reproducibility
+To record your environment:
+```bash
+nvcc --version
+gcc --version
+apt show libgmp-dev 2>/dev/null | grep Version
+```
 
-All results were produced on the following fixed platform:
+All benchmark configurations (LIMIT, SEG_SIZE, P_SMALL, thread counts)
+are documented in [RESULTS.md](RESULTS.md) for each run.
+
+Single number results were produced on the following fixed platform:
 
 | Component | Specification |
 |----------|---------------|
@@ -214,15 +212,21 @@ All results were produced on the following fixed platform:
 | **OpenMP** | 4.5 |
 | **GMP** | 6.3.0+dfsg-2ubuntu6.1 |
 
-To record your environment:
-```bash
-nvcc --version
-gcc --version
-apt show libgmp-dev 2>/dev/null | grep Version
-```
+All range verification results were produced on the following platform:
 
-All benchmark configurations (LIMIT, SEG_SIZE, P_SMALL, thread counts)
-are documented in [RESULTS.md](RESULTS.md) for each run.
+| Component | Specification |
+|----------|---------------|
+| **GPU** | NVIDIA GeForce RTX 5090, 32 GB VRAM, Driver 580.95.05, CUDA 13.0 |
+| **CPU** | Dual‑socket AMD EPYC (Engineering Sample 100‑000000897‑03), 128 logical cores; Effective: 13.6 vCPUs (cgroup quota: 1360000 / 100000) |
+| **Memory** | 44GB |
+| **Environment** | Ubuntu (containerized); GPU access: Full, non‑virtualized RTX 5090 |
+| **OS** | Ubuntu 24.04 |
+| **CUDA Toolkit** | 13.0 |
+| **GCC** | 13.3.0 (Ubuntu 13.3.0-6ubuntu2~24.04.1) |
+| **OpenMP** | 4.5 |
+| **GMP** | 6.3.0+dfsg-2ubuntu6.1 |
+
+All timings are wall‑clock time. All configurations are recorded exactly as run so results are fully reproducible.
 
 ---
 
@@ -230,8 +234,8 @@ are documented in [RESULTS.md](RESULTS.md) for each run.
 
 ```text
 - `src/`
-  - `goldbach_gpu3.cu`   : Segmented double-sieve (Flagship, VRAM-independent).
-  - `goldbach_gpu2.cu`   : Global bitset verifier (VRAM-limited baseline).
+  - `goldbach.cu`        : Multi-GPU range verifier (Flagship).
+  - `goldbach_gpu5a.cu`  : (experimental for testing new features).
   - `big_check.cpp`      : Arbitrary precision checker (GMP + OpenMP).
   - `single_check.cu`    : 64-bit deterministic Miller-Rabin checker.
   - `cpu_goldbach.cpp`   : Sequential CPU baseline oracle.
@@ -240,7 +244,7 @@ are documented in [RESULTS.md](RESULTS.md) for each run.
 - `include/`
   - `prime_bitset.hpp`   : Core data structures and bit-indexing logic.
 - `legacy/`
-  - `goldbach_gpu.cu`    : Historical naive byte-array implementation.
+  - `goldbach_gpu3.cu`   : Historical GPU implementation.
 - `tests/`
   - `validation.sh`      : Automated correctness and robustness test suite.
 ```

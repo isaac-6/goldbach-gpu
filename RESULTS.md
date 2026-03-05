@@ -1,76 +1,55 @@
 # Goldbach Verification Results Log
 
-All results were produced on the following fixed platform:
+All range verification results were produced on the following platform:
 
 | Component | Specification |
 |----------|---------------|
-| **CPU** | Intel i7‑12700H, 20 logical threads |
-| **GPU** | NVIDIA RTX 3070, 8 GB VRAM, 448 GB/s bandwidth |
-| **RAM** | 32 GB |
-| **OS** | WSL2, Ubuntu 24.04 |
-| **CUDA Toolkit** | 13.1.115 |
-| **CUDA Build Info** | cuda_13.1.r13.1/compiler.37061995_0 (Dec 16 2025) |
-| **GCC** | 13.3.0 (Ubuntu 13.3.0‑6ubuntu2~24.04.1) |
+| **GPU** | NVIDIA GeForce RTX 5090, 32 GB VRAM, Driver 580.95.05, CUDA 13.0 |
+| **CPU** | Dual‑socket AMD EPYC (Engineering Sample 100‑000000897‑03), 128 logical cores; Effective: 13.6 vCPUs (cgroup quota: 1360000 / 100000) |
+| **Memory** | 44GB |
+| **Environment** | Ubuntu (containerized); GPU access: Full, non‑virtualized RTX 5090 |
+| **OS** | Ubuntu 24.04 |
+| **CUDA Toolkit** | 13.0 |
+| **GCC** | 13.3.0 (Ubuntu 13.3.0-6ubuntu2~24.04.1) |
 | **OpenMP** | 4.5 |
-| **GMP** | 6.3.0+dfsg‑2ubuntu6.1 |
+| **GMP** | 6.3.0+dfsg-2ubuntu6.1 |
 
 All timings are wall‑clock time. All configurations are recorded exactly as run so results are fully reproducible.
 
 ---
 
-## CPU baseline (`goldbach`)
+## CPU baseline (`cpu_goldbach`)
 
 Tool: `cpu_goldbach.cpp`
 Method: Segmented sieve of Eratosthenes + sequential Goldbach scan.
 No GPU. Serves as correctness oracle for all GPU tools.
 
-| Limit | Even n checked | Sieve | Check | Total | Failures |
-|-------|----------------|-------|-------|-------|----------|
-| 10^6  | 499,999      | 1.5 ms | 8.7 ms | 10 ms | 0 |
-| 10^7  | 4,999,999      | 34 ms | 101 ms | 134 ms | 0 |
-| 10^8  | 49,999,999     | 749 ms | 1,218 ms | 1,968 ms | 0 |
-| 10^9  | 499,999,999    | 8,696 ms | 13,873 ms | 22,659 ms | 0 |
-| 10^10 | 4,999,999,999  | 119,947 ms | 188,388 ms | 308,335 ms | 0 |
+| Limit | Even n checked | Total | Failures |
+|-------|----------------|-------|----------|
+| 10^8  | 49,999,999     | 1,515.2 ms | 0 |
+| 10^9  | 499,999,999    | 19,183.7 ms | 0 |
 
 ---
 
-## GPU range verifier -- byte array (`goldbach_gpu`)
+## GPU range verifier -- current flagship (`goldbach`)
 
-Tool: `goldbach_gpu.cu`
+Tool: `goldbach.cu`
 Method: Byte array prime table (1 byte per number) + GPU kernel, one thread per even n.
-Hard VRAM limit: ~10^9 (byte array requires 953 MB at 10^9).
 
-| Limit | Even n checked | Sieve (CPU) | Kernel (GPU) | Total | Failures |
-|-------|----------------|-------------|--------------|-------|----------|
-| 10^6  | 499,999        | 6 ms    | 0.91 ms | 31 ms    | 0 |
-| 10^8  | 49,999,999     | 1,042 ms | 25 ms  | 4,861 ms | 0 |
-| 10^9  | 499,999,999    | 12,928 ms | 206 ms | 57,848 ms | 0 |
+SEG_SIZE = 200,000,000
+P_SMALL  = 1,000,000
+P_BATCH  = 2,000,000
 
-Note: These are pre-OpenMP sieve timings (historical). Current sieve is faster.
-
----
-
-## GPU range verifier -- compact bitset (`goldbach_gpu2`)
-
-Tool: `goldbach_gpu2.cu`
-Method: Compact bitset (1 bit per odd number, 16x memory reduction) + GPU kernel.
-VRAM usage: 59 MB at 10^9, 596 MB at 10^10, 5,960 MB at 10^11.
-Hard VRAM limit: cannot exceed 10^11 on 8 GB GPU (10^12 would need 59 GB).
-Sieve parallelized with OpenMP (20 threads, 1.7x speedup, memory-bandwidth limited).
-
-| Limit | Even n checked | Sieve (CPU, OpenMP) | Kernel (GPU) | Total | Failures |
-|-------|----------------|---------------------|--------------|-------|----------|
-| 10^8  | 49,999,999     | 46 ms    | 75 ms    | 126 ms    | 0 |
-| 10^9  | 499,999,999    | 687 ms   | 698 ms   | 1,344 ms  | 0 |
-| 10^10 | 4,999,999,999  | 17,923 ms | 7,520 ms | 25,034 ms | 0 |
-
-GPU speedup over CPU baseline (total vs total): 16x at 10^9, 12x at 10^10.
-At 10^8, kernel launch overhead causes GPU kernel time to exceed sieve time;
-GPU advantage dominates from 10^9 upward.
+| Limit | Even n checked | Total | Failures |
+|-------|----------------|-------|----------|
+| 10^9  | 499,999,999    | 141.018 ms | 0 |
+| 10^10  | 4,999,999,999    | 395.769 ms | 0 |
+| 10^11  | 49,999,999,999    | 3,311.5 ms | 0 |
+| 10^12  | 499,999,999,999    | 37,440 ms | 0 |
 
 ---
 
-## GPU segmented verifier (`goldbach_gpu3`)
+## GPU legacy verifier (`goldbach_gpu3`)
 
 Tool: `goldbach_gpu3.cu`
 Method: Double sieve over n. For each segment [A, B]:
@@ -90,20 +69,35 @@ Segment buffer: 59 MB
 Verified buffer: 476 MB
 ```
 
-| Limit | Even n checked | GPU success | Phase 2 fallbacks | Total time | Failures |
-|-------|----------------|-------------|-------------------|------------|----------|
-| 10^8  | 49,999,999    | 100% | 0 | 305 ms      | 0 |
-| 10^9  | 499,999,999    | 100% | 0 | 2,049 ms      | 0 |
-| 10^10 | 4,999,999,999  | 100% | 0 | 23,546 ms     | 0 |
-| 10^11 | 49,999,999,999 | 100% | 0 | 226,490 ms    | 0 |
-| 10^12 | 499,999,999,999 | 100% | 0 | 2,457,040 ms | 0 |
+| Limit | Even n checked | Total | Failures |
+|-------|----------------|-------|----------|
+| 10^8  | 49,999,999    | 451.657 ms | 0 |
+| 10^9  | 499,999,999    | 1,867.67 ms | 0 |
+| 10^10  | 4,999,999,999    | 18,056.5 ms | 0 |
 
-100% GPU success rate confirms p_min(n) <= 2,000,000 for all even n <= 10^12.
+100% Phase 1 confirms p_min(n) <= 1,000,000 for all even n <= 10^12 (from prefious run with another system).
 Predicted worst case H(10^12) ~ 2,000 (quadratic fit to Oliveira e Silva data).
 Our bound exceeds the prediction by 3 orders of magnitude as a safety margin.
 
-goldbach_gpu3 is slower than goldbach_gpu2 at lower limits due to per-segment overhead. This is an inherent trade-off:
-goldbach_gpu3 has no VRAM ceiling; goldbach_gpu2 cannot exceed 10^11.
+goldbach_gpu3 has no VRAM ceiling; old goldbach_gpu2 cannot exceed 10^11.
+
+---
+
+All results below were produced on the following fixed platform:
+
+| Component | Specification |
+|----------|---------------|
+| **CPU** | Intel i7‑12700H, 20 logical threads |
+| **GPU** | NVIDIA RTX 3070, 8 GB VRAM, 448 GB/s bandwidth |
+| **RAM** | 32 GB |
+| **OS** | WSL2, Ubuntu 24.04 |
+| **CUDA Toolkit** | 13.1.115 |
+| **CUDA Build Info** | cuda_13.1.r13.1/compiler.37061995_0 (Dec 16 2025) |
+| **GCC** | 13.3.0 (Ubuntu 13.3.0‑6ubuntu2~24.04.1) |
+| **OpenMP** | 4.5 |
+| **GMP** | 6.3.0+dfsg‑2ubuntu6.1 |
+
+All timings are wall‑clock time. All configurations are recorded exactly as run so results are fully reproducible.
 
 ---
 
@@ -171,6 +165,5 @@ p=113 (10^200) found in 43 ms; p=26,981 (10^1000) takes 363 ms with 20 threads.
 - [x] GPU segmented verifier, correct double-sieve design (gpu3)
 - [x] Range verification to 10^12 (500 billion even numbers, 41 minutes)
 - [x] Multi-GPU adaptation (tested on 8x H100)
-- [ ] GPU-accelerated sieve construction (remove CPU sieve bottleneck)
-- [ ] Oliveira-style bulk double sieve on GPU (O(N log log N), target 10^15)
+- [x] GPU-accelerated sieve construction (remove CPU sieve bottleneck)
 - [ ] Goldbach partition counting c(n) at scale
