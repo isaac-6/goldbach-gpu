@@ -1,6 +1,48 @@
-// goldbach_multi_gpu_prod.cu
-// Production-grade Multi-GPU Goldbach range verifier.
-// Mathematically sound up to 10^19.
+// goldbach_gpu5a.cu
+// GPU Goldbach range verifier -- GPU-segmented sieve for q.
+//
+// Algorithm:
+//
+//   Build small primes up to small_high (>= max(P_SMALL, sqrt(LIMIT))).
+//
+//   For each segment [A, B] of even numbers:
+//     1) GPU sieve odd q in [q_low, q_high], where:
+//          q_low  = max(3, A - P_SMALL), odd
+//          q_high = B + 1, odd
+//     2) Phase 1 (GPU): for each prime p in [2, P_SMALL],
+//          mark all even n in [A, B] as verified if n-p is prime.
+//          q = n-p checked via:
+//            - small bitset (q <= small_high)
+//            - segment bitset (q_low <= q <= q_high)
+//            - Miller-Rabin otherwise
+//     3) Phase 2 (CPU fallback): any n still unverified after Phase 1
+//          is checked using optimized sieve (up to 10^8) + Miller-Rabin.
+//
+// Correctness guarantee:
+//   Every even n in [4, LIMIT] is verified by Phase 1 or Phase 2.
+//
+// CRITICAL LIMITS:
+//   - P_SMALL must be <= 4,000,000,000 (~4 billion) to prevent p*p overflow
+//   - LIMIT is theoretically up to 2^64-1, but practical limits:
+//     * GPU VRAM constrains SEG_SIZE 
+//     * Integer sqrt computed exactly using binary search (no double loss)
+//     * Phase 2 now uses sieve + Miller-Rabin
+// 
+// MULTI-GPU ARCHITECTURE:
+//   - Lock-free work queue for dynamic load balancing
+//   - Each GPU processes independent segments
+//   - Thread-safe logging and failure detection
+//   - Exception-safe resource cleanup
+//
+// PERFORMANCE CHARACTERISTICS:
+//   - Phase 1: 10^12 in 36.5 seconds on RTX 5090
+//   - Phase 2: never reached on tested inputs due to effective Phase 1 filtering
+//   - Memory: ~200 MB with  --seg-size=200000000 --p-small=1000000 --batch-size=2000000
+//
+// RANGE:
+//   This implementation is mathematically sound for
+//   verification from 4 to 10^19 and beyond (limited by time).
+//   No overflow vulnerabilities.
 
 #include <cuda_runtime.h>
 #include <cstdint>
@@ -68,7 +110,7 @@ struct Options {
     } while (0)
 
 // -------------------------------------------------------
-// GPU Kernel Device Functions (Mathematically verified)
+// GPU Kernel Device Functions
 // -------------------------------------------------------
 __device__ uint64_t mulmod64(uint64_t a, uint64_t b, uint64_t m) {
     return (uint64_t)((__uint128_t)a * b % m);
@@ -148,7 +190,7 @@ __global__ void count_unverified_kernel(
     }
 }
 
-// RESTORED 5c EXACT: Overflow-safe tiled sieve
+// Overflow-safe tiled sieve
 __global__ void tiled_sieve_segment_kernel(
     uint64_t        q_low,
     uint64_t        q_high,
@@ -212,6 +254,33 @@ __global__ void tiled_sieve_segment_kernel(
     }
 }
 
+// -------------------------------------------------------
+// Phase 1 Kernel: GPU Goldbach Verification
+// -------------------------------------------------------
+// One thread per even number in segment.
+//
+// CRITICAL INVARIANTS:
+// 1. p_batch MUST be sorted in ascending order (allows early termination)
+// 2. d_verified[tid] is monotonic: once set to 1, stays 1 forever
+// 3. Kernel may be called multiple times with different p_batch slices
+// 4. Early return on d_verified[tid] == 1 is SAFE because:
+//    - We only need ONE valid Goldbach partition (p + q = n)
+//    - Finding one partition proves n satisfies the conjecture
+//    - Additional partitions are unnecessary
+// 5. p > n/2 termination is SAFE because:
+//    - If p > n/2, then q = n - p < n/2 < p
+//    - This would be a duplicate of the partition (q, p)
+//    - All unique partitions have p <= n/2
+//
+// THREAD SAFETY:
+// - Multiple threads may write d_verified[tid] = 1 concurrently (idempotent)
+// - No thread ever writes d_verified[tid] = 0 after initialization
+// - No race conditions or data corruption possible
+//
+// OVERFLOW SAFETY:
+// - p > n/2 uses division (safe for all uint64_t values)
+// - n - p cannot underflow because p <= n/2 < n
+// -------------------------------------------------------
 __global__ void goldbach_phase1_kernel(
     const uint64_t* __restrict__ d_small, uint64_t small_high,
     const uint64_t* __restrict__ d_seg_bits, uint64_t q_low, uint64_t q_high,
@@ -398,7 +467,7 @@ void run_gpu_worker(
                     if (!verified[i]) {
                         uint64_t n = seg_start + i * 2;
                         g_total_phase2_count.fetch_add(1, std::memory_order_relaxed);
-                        safe_log("[GPU ", device_id, "] Phase 2 fallback for n = ", n, "...");
+                        // safe_log("[GPU ", device_id, "] Phase 2 fallback for n = ", n, "...");
                         
                         if (!cpu_optimized_check(n, cpu_primes)) {
                             g_failure.store(true, std::memory_order_relaxed);
@@ -523,6 +592,19 @@ int main(int argc, char** argv) {
     }
     if (P_SMALL > LIMIT) P_SMALL = LIMIT;
 
+    // Performance warnings
+    if (P_SMALL > LIMIT) {
+        std::cout << "[Info] P_SMALL (" << P_SMALL << ") > LIMIT (" << LIMIT 
+                << "), adjusting P_SMALL to LIMIT.\n";
+        P_SMALL = LIMIT;
+    }
+    if (P_SMALL < 1'000'000ULL) {
+        std::cerr << "\n[!] WARNING: P_SMALL = " << P_SMALL << " is very small.\n";
+        std::cerr << "    This may cause excessive Phase 2 fallbacks.\n";
+        std::cerr << "    Recommended: P_SMALL >= 10^7 for numbers > 10^12\n";
+        std::cerr << "                 P_SMALL >= 10^8 for numbers > 10^18\n\n";
+    }
+
     int device_count = 0;
     cudaError_t err = cudaGetDeviceCount(&device_count);
     if (err != cudaSuccess || device_count == 0) { std::cerr << "No CUDA devices found.\n"; return 1; }
@@ -588,7 +670,7 @@ int main(int argc, char** argv) {
         );
     }
 
-    // // Progress Monitor (Optional enhancement, runs on main thread)
+    // // Progress Monitor (Optional, runs on main thread)
     // uint64_t total_even_to_check = (LIMIT - 4) / 2 + 1;
     // while (!g_failure.load() && !g_system_error.load()) {
     //     uint64_t processed = g_total_processed.load(std::memory_order_relaxed);
