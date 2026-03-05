@@ -99,9 +99,7 @@ Full benchmark log: [RESULTS.md](RESULTS.md)
 | `goldbach` | 10⁹ | 499,999,999 | 141.0 ms | 0 |
 | `goldbach` | 10¹² | 499,999,999,999 | 37,440 ms | 0 |
 
-GPU speedup over CPU baseline: **16× total at 10⁹**.
-goldbach_gpu3 reaches 10¹² which no single-GPU implementation can reach
-with a global bitset design on 8 GB VRAM.
+GPU speedup over CPU baseline: **136× total at 10⁹**.
 
 ### Single number verification
 
