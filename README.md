@@ -255,8 +255,8 @@ All timings are wall‑clock time. All configurations are recorded exactly as ru
 
 If you use this software in academic work, please cite the archived release:
 ```
-Llorente-Saguer, I. (2026). GoldbachGPU (v1.1.0) [Software]. Zenodo.
-https://doi.org/10.5281/zenodo.18837081
+Llorente-Saguer, I. (2026). GoldbachGPU (v2.0.0) [Software]. Zenodo.
+https://doi.org/10.5281/zenodo.18879797
 ```
 For the latest version, see the concept DOI:
 https://doi.org/10.5281/zenodo.18786328
