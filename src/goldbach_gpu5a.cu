@@ -48,6 +48,7 @@
 #include <cstdint>
 #include <vector>
 #include <iostream>
+#include <iomanip>
 #include <chrono>
 #include <cmath>
 #include <algorithm>
@@ -95,6 +96,7 @@ static const uint64_t VRAM_SAFETY_MARGIN_BYTES = 50ULL * 1024 * 1024;
 struct Options {
     bool async = false;
     uint64_t batchSize = 100000;
+    bool showProgress = false;
 };
 
 // Throw exception instead of exit(1) for graceful multi-thread shutdown
@@ -548,7 +550,8 @@ void print_usage(const char* prog) {
               << "  --p-small=N      GPU prime search bound (max: 4,000,000,000)\n"
               << "  --batch-size=N   Primes per GPU batch (default: 100000)\n"
               << "  --gpus=N         Number of GPUs to use (default: all available)\n"
-              << "  --start          Starting number (default: 4)\n"
+              << "  --start=N        Starting number for verification (default: 4)\n"
+              << "  --progress       Show real-time progress updates\n"
               << "  -h, --help       Show this help message\n";
 }
 
@@ -568,6 +571,7 @@ int main(int argc, char** argv) {
         std::string arg = argv[i];
         if (arg == "-h" || arg == "--help") { print_usage(argv[0]); return 0; }
         if (arg == "--async") { opt.async = true; continue; }
+        if (arg == "--progress") { opt.showProgress = true; continue; }
         if (arg.rfind("--batch-size=", 0) == 0) { opt.batchSize = std::stoull(arg.substr(13)); continue; }
         if (arg.rfind("--gpus=", 0) == 0) { requested_gpus = std::stoi(arg.substr(7)); continue; }
         if (arg.rfind("--seg-size=", 0) == 0) { SEG_SIZE = std::stoull(arg.substr(11)); continue; }
@@ -679,6 +683,67 @@ int main(int argc, char** argv) {
 
     auto t_main_start = now();
 
+
+    // Progress Monitor (optional, controlled by --progress flag)
+    std::thread progress_thread;
+    std::atomic<bool> progress_running{false};
+
+    if (opt.showProgress) {
+        uint64_t total_even_to_check = (LIMIT - 4) / 2 + 1;
+        progress_running.store(true);
+        
+        progress_thread = std::thread([&]() {
+            auto start_time = now();
+            auto last_update = start_time;
+            uint64_t last_processed = 0;
+            
+            while (progress_running.load() && 
+                !g_failure.load() && 
+                !g_system_error.load()) {
+                
+                std::this_thread::sleep_for(std::chrono::milliseconds(500));
+                
+                auto current_time = now();
+                uint64_t processed = g_total_processed.load(std::memory_order_relaxed);
+                
+                if (processed >= total_even_to_check) break;
+                
+                // Update every 0.5 seconds
+                auto elapsed_since_update = std::chrono::duration<double>(
+                    current_time - last_update).count();
+                
+                if (elapsed_since_update >= 0.5) {
+                    double total_elapsed = std::chrono::duration<double>(
+                        current_time - start_time).count();
+                    
+                    double pct = 100.0 * processed / total_even_to_check;
+                    uint64_t rate = (total_elapsed > 0) ? 
+                        (uint64_t)(processed / total_elapsed) : 0;
+                    
+                    // Estimate time remaining
+                    uint64_t remaining = total_even_to_check - processed;
+                    uint64_t eta_seconds = (rate > 0) ? remaining / rate : 0;
+                    
+                    std::cout << "\r[Progress] " 
+                            << processed << " / " << total_even_to_check
+                            << " (" << std::fixed << std::setprecision(2) << pct << "%) "
+                            << "| " << std::scientific << std::setprecision(2) 
+                            << (double)rate << " numbers/sec "
+                            << "| ETA: " << eta_seconds << "s          "
+                            << std::flush;
+                    
+                    last_update = current_time;
+                    last_processed = processed;
+                }
+            }
+            
+            // Clear progress line when done
+            if (progress_running.load()) {
+                std::cout << "\r" << std::string(80, ' ') << "\r" << std::flush;
+            }
+        });
+    }
+
     // Launch Worker Threads
     std::vector<std::thread> workers;
     for (int g = 0; g < use_gpus; ++g) {
@@ -690,13 +755,6 @@ int main(int argc, char** argv) {
         );
     }
 
-    // // Progress Monitor (Optional, runs on main thread)
-    // uint64_t total_even_to_check = (LIMIT - START) / 2 + 1;
-    // while (!g_failure.load() && !g_system_error.load()) {
-    //     uint64_t processed = g_total_processed.load(std::memory_order_relaxed);
-    //     if (processed >= total_even_to_check) break;
-    //     std::this_thread::sleep_for(std::chrono::milliseconds(500));
-    // }
 
     for (auto& t : workers) {
         if (t.joinable()) t.join();
@@ -704,6 +762,14 @@ int main(int argc, char** argv) {
 
     auto t_main_end = now();
     double total_ms = std::chrono::duration<double, std::milli>(t_main_end - t_main_start).count();
+
+    // Stop progress thread
+    if (opt.showProgress) {
+        progress_running.store(false);
+        if (progress_thread.joinable()) {
+            progress_thread.join();
+        }
+    }
 
     if (g_system_error.load()) {
         std::cerr << "\n[!] Program aborted due to internal hardware/CUDA errors.\n";
