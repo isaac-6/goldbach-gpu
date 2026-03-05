@@ -1,4 +1,6 @@
 [![DOI](https://zenodo.org/badge/1162873542.svg)](https://doi.org/10.5281/zenodo.18786328)
+[![arXiv](https://img.shields.io/badge/arXiv-2603.02621-b31b1b.svg)](https://arxiv.org/abs/2603.02621)
+
 ![Release](https://img.shields.io/github/v/release/isaac-6/goldbach-gpu)
 ![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)
 ![Language: C++](https://img.shields.io/badge/Language-C%2B%2B-blue.svg)
@@ -253,15 +255,20 @@ All timings are wall‑clock time. All configurations are recorded exactly as ru
 
 ## How to cite
 
-If you use this work, please cite:
-
+If you use this software in academic work, please cite the archived release:
 ```
 Llorente-Saguer, I. (2026). GoldbachGPU (v1.1.0) [Software]. Zenodo.
 https://doi.org/10.5281/zenodo.18837081
 ```
 For the latest version, see the concept DOI:
 https://doi.org/10.5281/zenodo.18786328
-A preprint will be submitted to arXiv shortly.
+
+
+If you reference the scientific description of the method, please cite the preprint
+```
+Llorente-Saguer, I. (2026). GoldbachGPU: High‑performance Goldbach verification on GPUs.
+arXiv:2603.02621.
+```
 
 ---
 
