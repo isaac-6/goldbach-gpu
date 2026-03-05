@@ -64,6 +64,13 @@ set_target_properties(goldbach_gpu5a PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 
 
+# Multi-GPU (Main Function)
+add_executable(goldbach src/goldbach.cu)
+target_link_libraries(goldbach PRIVATE goldbach_lib)
+set_target_properties(goldbach PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+
+
 # Multi-GPU 5b (Stream-Based Optimization)
 add_executable(goldbach_gpu5b src/goldbach_gpu5b.cu)
 target_link_libraries(goldbach_gpu5b PRIVATE goldbach_lib)
