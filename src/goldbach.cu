@@ -1,7 +1,7 @@
 // goldbach.cu
 // v2.0.0 -- 2026-03-05
 //
-// GPU Goldbach range verifier -- GPU-segmented sieve for q.
+// GPU Goldbach range verifier
 // This function gets updated with the best version of the GPU code.
 //
 // Algorithm:
@@ -44,8 +44,7 @@
 //
 // RANGE:
 //   This implementation is mathematically sound for
-//   verification from 4 to 10^19 and beyond (limited by time).
-//   No overflow vulnerabilities.
+//   verification from 4 to 1.8 * 10^19 (limited by time).
 
 #include <cuda_runtime.h>
 #include <cstdint>
