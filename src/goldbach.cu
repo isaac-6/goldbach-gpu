@@ -382,8 +382,8 @@ void run_gpu_worker(
     const PrimeBitset& small_bitset,
     const std::vector<uint64_t>& small_primes,
     const std::vector<uint64_t>& gpu_primes,
-    const std::vector<uint64_t>& cpu_primes,
-    const Options& opt)
+    const std::vector<uint64_t>& cpu_primes
+)
 {
     try {
         CUDA_CHECK(cudaSetDevice(device_id));
@@ -705,7 +705,6 @@ int main(int argc, char** argv) {
         progress_thread = std::thread([&]() {
             auto start_time = now();
             auto last_update = start_time;
-            uint64_t last_processed = 0;
             
             while (progress_running.load() && 
                 !g_failure.load() && 
@@ -743,7 +742,6 @@ int main(int argc, char** argv) {
                             << std::flush;
                     
                     last_update = current_time;
-                    last_processed = processed;
                 }
             }
             
@@ -760,8 +758,7 @@ int main(int argc, char** argv) {
         workers.emplace_back(
             run_gpu_worker, g, LIMIT, SEG_SIZE, P_SMALL, opt.batchSize,
             small_high, small_bytes, std::cref(small_bitset),
-            std::cref(small_primes), std::cref(gpu_primes), std::cref(cpu_primes),
-            std::cref(opt)
+            std::cref(small_primes), std::cref(gpu_primes), std::cref(cpu_primes)
         );
     }
 
