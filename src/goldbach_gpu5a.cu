@@ -71,7 +71,7 @@ inline std::chrono::high_resolution_clock::time_point now() {
 static std::atomic<bool>     g_failure{false};
 static std::atomic<bool>     g_system_error{false}; // For CUDA/Runtime errors
 static std::atomic<uint64_t> g_failure_n{0};
-static std::atomic<uint64_t> g_next_segment_start{4};
+static std::atomic<uint64_t> g_next_segment_start{0};
 static std::atomic<uint64_t> g_total_phase2_count{0};
 static std::atomic<uint64_t> g_total_processed{0};
 
@@ -548,6 +548,7 @@ void print_usage(const char* prog) {
               << "  --p-small=N      GPU prime search bound (max: 4,000,000,000)\n"
               << "  --batch-size=N   Primes per GPU batch (default: 100000)\n"
               << "  --gpus=N         Number of GPUs to use (default: all available)\n"
+              << "  --start          Starting number (default: 4)\n"
               << "  -h, --help       Show this help message\n";
 }
 
@@ -558,6 +559,7 @@ int main(int argc, char** argv) {
     uint64_t LIMIT = 0;
     uint64_t SEG_SIZE = 10'000'000ULL;
     uint64_t P_SMALL = 1'000'000ULL;
+    uint64_t START = 4; // Default starting point
     int requested_gpus = -1;
 
     std::vector<std::string> positional;
@@ -570,6 +572,7 @@ int main(int argc, char** argv) {
         if (arg.rfind("--gpus=", 0) == 0) { requested_gpus = std::stoi(arg.substr(7)); continue; }
         if (arg.rfind("--seg-size=", 0) == 0) { SEG_SIZE = std::stoull(arg.substr(11)); continue; }
         if (arg.rfind("--p-small=", 0) == 0) { P_SMALL = std::stoull(arg.substr(10)); continue; }
+        if (arg.rfind("--start=", 0) == 0) { START = std::stoull(arg.substr(8)); continue; }
         positional.push_back(arg);
     }
 
@@ -632,7 +635,7 @@ int main(int argc, char** argv) {
     // Fail-Fast Validations
     validate_hardware_and_limits(use_gpus, SEG_SIZE, P_SMALL, opt.batchSize, small_bytes);
 
-    std::cout << "\nGoldbach Multi-GPU Verifier (Limit: " << LIMIT << ")\n";
+    // std::cout << "\nGoldbach Multi-GPU Verifier (Limit: " << LIMIT << ")\n";
     std::cout << "Building small primes bitset up to " << small_high << "...\n";
     auto t0 = now();
     
@@ -657,6 +660,23 @@ int main(int argc, char** argv) {
     std::cout << "Initialization completed in " 
               << std::chrono::duration<double, std::milli>(t1 - t0).count() << " ms.\n\n";
 
+    // ========================================================================
+    // INITIALIZE ATOMIC COUNTER & ADJUST TOTALS
+    // ========================================================================
+    
+    // 1. Seed the global atomic counter with the starting value.
+    // Every GPU worker will execute a fetch_add() against this exact variable
+    // to grab its first segment. It must be stored before any thread is created.
+    g_next_segment_start.store(START);
+
+    // 2. Adjust the total workload calculation for accurate statistics and logging.
+    // Instead of (LIMIT - 4), we use (LIMIT - START).
+    uint64_t total_even_to_check = (LIMIT - START) / 2 + 1;
+
+    std::cout << "--- Launching Multi-GPU Verifier ---\n";
+    std::cout << "Checking range : [" << START << ", " << LIMIT << "]\n";
+    std::cout << "Total numbers  : " << total_even_to_check << "\n\n";
+
     auto t_main_start = now();
 
     // Launch Worker Threads
@@ -671,7 +691,7 @@ int main(int argc, char** argv) {
     }
 
     // // Progress Monitor (Optional, runs on main thread)
-    // uint64_t total_even_to_check = (LIMIT - 4) / 2 + 1;
+    // uint64_t total_even_to_check = (LIMIT - START) / 2 + 1;
     // while (!g_failure.load() && !g_system_error.load()) {
     //     uint64_t processed = g_total_processed.load(std::memory_order_relaxed);
     //     if (processed >= total_even_to_check) break;
