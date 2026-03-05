@@ -1,5 +1,5 @@
 // goldbach.cu
-// v2.0.2 -- 2026-03-05
+// v2.0.0 -- 2026-03-05
 //
 // GPU Goldbach range verifier -- GPU-segmented sieve for q.
 // This function gets updated with the best version of the GPU code.
@@ -552,7 +552,7 @@ void print_usage(const char* prog) {
               << "  --seg-size=N     Even integers per segment (default: 10,000,000)\n"
               << "  --p-small=N      GPU prime search bound (max: 4,000,000,000)\n"
               << "  --batch-size=N   Primes per GPU batch (default: 100000)\n"
-              << "  --gpus=N         Number of GPUs to use (default: all available)\n"
+              << "  --gpus=N         Number of GPUs to use (default: 1)\n"
               << "  --start=N        Starting number for verification (default: 4)\n"
               << "  --progress       Show real-time progress updates\n"
               << "  -h, --help       Show this help message\n";
@@ -566,7 +566,7 @@ int main(int argc, char** argv) {
     uint64_t SEG_SIZE = 10'000'000ULL;
     uint64_t P_SMALL = 1'000'000ULL;
     uint64_t START = 4; // Default starting point
-    int requested_gpus = -1;
+    int requested_gpus = 1;
 
     std::vector<std::string> positional;
 
