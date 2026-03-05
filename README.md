@@ -92,11 +92,10 @@ Full benchmark log: [RESULTS.md](RESULTS.md)
 
 | Tool | Limit | Even n checked | Total time | Failures |
 |------|-------|----------------|------------|----------|
-| `cpu_goldbach` (CPU) | 10⁹ | 499,999,999 | 22,568 ms | 0 |
-| `cpu_goldbach` (CPU) | 10¹⁰ | 4,999,999,999 | 308,335 ms | 0 |
-| `goldbach_gpu2` | 10⁹ | 499,999,999 | 1,344 ms | 0 |
-| `goldbach_gpu2` | 10¹⁰ | 4,999,999,999 | 25,034 ms | 0 |
-| `goldbach_gpu3` | 10¹² | 499,999,999,999 | 5,760,350 ms | 0 |
+| `cpu_goldbach` (CPU) | 10⁹ | 499,999,999 | 19,183.7 ms | 0 |
+| `goldbach_gpu3` | 10⁹ | 499,999,999 | 1,867.7 ms | 0 |
+| `goldbach` | 10⁹ | 499,999,999 | 141.0 ms | 0 |
+| `goldbach` | 10¹² | 499,999,999,999 | 37,440 ms | 0 |
 
 GPU speedup over CPU baseline: **16× total at 10⁹**.
 goldbach_gpu3 reaches 10¹² which no single-GPU implementation can reach
@@ -147,7 +146,7 @@ Expected time: ~23 s at 10⁹, ~5 min at 10¹⁰.
 ```bash
 ./build/bin/goldbach 1000000000000 --seg-size=200000000 --p-small=1000000 --batch-size=2000000
 ```
-No VRAM ceiling. Hardware VRAM is checked against the segment size at launch to ensure safe execution. Expected time: 36.5 s at 10¹² (1x RTX 5090).
+No VRAM ceiling as opposed to previous architectures. Hardware VRAM is checked against the segment size at launch to ensure safe execution. Expected time: 37 s at 10¹² (1x RTX 5090).
 
 To reproduce the 10¹² result with specific segmentation and prime bounds:
 ```bash
