@@ -1,4 +1,4 @@
-// goldbach_gpu3.cu
+// goldbach_gpu3.cu -v1.1.0-legacy
 // GPU Goldbach range verifier -- correct segmented design.
 //
 // Algorithm (double sieve over n):
