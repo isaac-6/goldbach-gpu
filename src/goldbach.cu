@@ -626,6 +626,12 @@ int main(int argc, char** argv) {
     cudaError_t err = cudaGetDeviceCount(&device_count);
     if (err != cudaSuccess || device_count == 0) { std::cerr << "No CUDA devices found.\n"; return 1; }
 
+    if (requested_gpus > device_count) {
+        std::cerr << "Requested " << requested_gpus
+                << " GPUs, but only " << device_count
+                << " available. Using " << device_count << ".\n";
+    }
+
     int use_gpus = (requested_gpus <= 0 || requested_gpus > device_count) ? device_count : requested_gpus;
 
     // Integer sqrt to avoid precision loss
