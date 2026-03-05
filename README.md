@@ -246,7 +246,8 @@ All timings are wall‑clock time. All configurations are recorded exactly as ru
 - `legacy/`
   - `goldbach_gpu3.cu`   : Historical GPU implementation.
 - `tests/`
-  - `validation.sh`      : Automated correctness and robustness test suite.
+  - `validation_gpu.sh`      : Automated correctness and robustness test suite for the gpu range verifier `goldbach`.
+  - `validation.sh`      : Automated correctness and robustness test suite for the rest of the functions.
 ```
 
 ---
