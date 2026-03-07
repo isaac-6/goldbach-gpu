@@ -38,7 +38,7 @@
 //   - Exception-safe resource cleanup
 //
 // PERFORMANCE CHARACTERISTICS:
-//   - Phase 1: 10^12 in 36.5 seconds on RTX 5090. With 2x 5090, it took 18.8 seconds.
+//   - Phase 1: 10^12 in 36.5 seconds on RTX 5090. With 2x 5090, it took 19 seconds.
 //   - Phase 2: never reached on tested inputs due to effective Phase 1 filtering
 //   - Memory: ~200 MB with  --seg-size=200000000 --p-small=1000000 --batch-size=2000000
 //
@@ -704,7 +704,7 @@ int main(int argc, char** argv) {
     std::atomic<bool> progress_running{false};
 
     if (opt.showProgress) {
-        uint64_t total_even_to_check = (LIMIT - 4) / 2 + 1;
+        uint64_t total_even_to_check = (LIMIT - START) / 2 + 1;
         progress_running.store(true);
         
         progress_thread = std::thread([&]() {
@@ -794,7 +794,7 @@ int main(int argc, char** argv) {
     }
 
     std::cout << "\n--- Verification Complete ---\n";
-    std::cout << "All even numbers up to " << LIMIT << " satisfy Goldbach. ✓\n";
+    std::cout << "All even numbers from " << START << " up to " << LIMIT << " satisfy Goldbach. ✓\n";
     std::cout << "Total computation time : " << (total_ms / 1000.0) << " seconds\n";
     std::cout << "Phase 2 fallbacks      : " << g_total_phase2_count.load() << "\n";
 
