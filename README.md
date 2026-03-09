@@ -1,5 +1,4 @@
 [![DOI](https://zenodo.org/badge/1162873542.svg)](https://doi.org/10.5281/zenodo.18786328)
-[![arXiv](https://img.shields.io/badge/arXiv-2603.02621-b31b1b.svg)](https://arxiv.org/abs/2603.02621)
 
 ![Release](https://img.shields.io/github/v/release/isaac-6/goldbach-gpu)
 ![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)
@@ -262,7 +261,7 @@ For the latest version, see the concept DOI:
 https://doi.org/10.5281/zenodo.18786328
 
 
-If you reference the scientific description of the method, please cite the preprint
+If you reference the scientific description of the method (e.g., big_check or goldbach_gpu3), please cite the preprint
 ```
 Llorente-Saguer, I. (2026). GoldbachGPU: High‑performance Goldbach verification on GPUs.
 arXiv:2603.02621.
