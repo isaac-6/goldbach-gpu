@@ -1,9 +1,11 @@
 [![DOI](https://zenodo.org/badge/1162873542.svg)](https://doi.org/10.5281/zenodo.18786328)
+[![arXiv](https://img.shields.io/badge/arXiv-2603.07850_(RangeVerification)-b31b1b.svg)](https://arxiv.org/abs/2603.07850)
+[![arXiv](https://img.shields.io/badge/arXiv-2603.02621_(BigCheck)-b31b1b.svg)](https://arxiv.org/abs/2603.02621)
 
-![Release](https://img.shields.io/github/v/release/isaac-6/goldbach-gpu)
-![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)
+[![Release](https://img.shields.io/github/v/release/isaac-6/goldbach-gpu)](https://github.com/isaac-6/goldbach-gpu/releases)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 ![Language: C++](https://img.shields.io/badge/Language-C%2B%2B-blue.svg)
-![CUDA: 13.0](https://img.shields.io/badge/CUDA-13.0-green.svg)
+![CUDA: 13.1](https://img.shields.io/badge/CUDA-13.1-green.svg)
 
 # goldbach-gpu
 
@@ -186,12 +188,8 @@ cd tests
 ---
 
 ## Reproducibility
-To record your environment:
-```bash
-nvcc --version
-gcc --version
-apt show libgmp-dev 2>/dev/null | grep Version
-```
+The codebase has been tested using the included test suite on CUDA 12.8.1, CUDA 13.0 and CUDA 13.1.
+Other versions may work but are not officially tested
 
 All benchmark configurations (LIMIT, SEG_SIZE, P_SMALL, thread counts)
 are documented in [RESULTS.md](RESULTS.md) for each run.
@@ -261,10 +259,17 @@ For the latest version, see the concept DOI:
 https://doi.org/10.5281/zenodo.18786328
 
 
-If you reference the scientific description of the method (e.g., big_check or goldbach_gpu3), please cite the preprint
+If you reference the scientific description of the range verification (`goldbach`), please cite:
+```
+Llorente-Saguer, I. (2026). A Lock-Free, Fully GPU-Resident Architecture for the Verification of Goldbach's Conjecture.
+https://arxiv.org/abs/2603.07850
+```
+
+
+If you reference the scientific description of the single big number verification method (`big_check`) or the previous CPU-GPU hybrid implementation (`goldbach_gpu3`), please cite:
 ```
 Llorente-Saguer, I. (2026). GoldbachGPU: High‑performance Goldbach verification on GPUs.
-arXiv:2603.02621.
+https://arxiv.org/abs/2603.02621
 ```
 
 ---
