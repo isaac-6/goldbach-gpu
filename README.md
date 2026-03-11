@@ -55,7 +55,7 @@ against the previous:
 
 | Tool | Method | Range | Hard limit |
 |------|--------|-------|------------|
-| `goldbach` | multi-GPU, segmented double-sieve | exhaustive | time only |
+| `goldbach` | multi-GPU, segmented double-sieve | exhaustive | (~1.8×10¹⁹) / time |
 | `cpu_goldbach` | CPU sieve + sequential scan | exhaustive | system RAM / time |
 | `single_check` | GPU Miller-Rabin | single number | uint64_t (~1.8×10¹⁹) |
 | `big_check` | GMP + OpenMP | single number | time only |
@@ -78,7 +78,7 @@ the current segment, which would miss valid partitions. Each segment uses only
 rigor for any number the GPU phase does not resolve; in all runs to date,
 this fallback has never been triggered.
 
-**goldbach**  (flagship) extends goldbach_gpu3 with multi-GPU support via lock-free work queues and thread-safe globals. It adds GPU-tiled sieving for segments, optimized Phase 2 (sieve to 10^8 + Miller-Rabin), overflow-safe operations (P_SMALL ≤ 4e9), and configurable CLI options (e.g., --seg-size, --gpus). Correctness is mathematically rigorous for n up to 2^64-1.
+**goldbach**  (flagship) extends goldbach_gpu3 with multi-GPU support via lock-free work queues and thread-safe globals. It adds GPU-tiled sieving for segments, optimized Phase 2 (sieve to 10^8 + primality test: Baillie-PSW or Miller-Rabin, selectable via --primetest=bpsw|mr), overflow-safe operations (P_SMALL ≤ 4e9), and configurable CLI options (e.g., --seg-size, --gpus). Correctness is mathematically rigorous for n up to 2^64-1.
 
 **big_check** handles numbers of arbitrary digit count using GMP exact
 arithmetic and probabilistic Miller-Rabin (25 rounds, false positive
