@@ -1,13 +1,13 @@
 ## v2.1.0 - 2026-03-11
 
 ### Enhanced Primality Testing (BPSW)
-- **Implemented Enhanced Baillie–PSW (Method A\*)** ([arXiv:2006.14425](https://arxiv.org/abs/2006.14425)), replacing the previous 12‑base Miller–Rabin fallback, thanks to Baillie's suggestion.  
-- **Deterministic for 64‑bit inputs**: This BPSW variant has no known counterexamples below \(2^{64}\), improving rigor for Goldbach verification.  
+- **Implemented Enhanced Baillie–PSW (Method A\*)** ([arXiv:2006.14425](https://arxiv.org/abs/2006.14425)), replacing the previous 12‑base Miller–Rabin fallback, upon Baillie's suggestion.  
+- **Deterministic for 64‑bit inputs**: This BPSW variant has no known counterexamples below \(2^{64}\).  
 - **~60% faster Phase 2 primality checks** compared to the legacy Miller–Rabin implementation.  
 - **No impact on wall‑clock time**: These primality tests are only invoked as *untriggered fallbacks* and in rare GPU overflow cases. For typical search ranges, overall runtime remains unchanged.
 
 ### CLI & Configuration
-- **Added `--primetest` flag**: Selects the primality test (`mr` or `bpsw`) used by **both GPU Phase 1 primality checks** and **CPU Phase 2 fallback**. 
+- **Added `--primetest` flag**: Selects the primality test (`mr` or `bpsw`) used by **both GPU Phase 1 primality checks** and **CPU Phase 2 fallback**. Default is bpsw.
 - **Method A\* parameter selection**: Uses the \(P=5, Q=5\) override to avoid the pseudoprime class identified in recent research.
 
 ### Mathematical Correctness
