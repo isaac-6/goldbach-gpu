@@ -104,7 +104,7 @@ struct Options {
     bool async = false;
     uint64_t batchSize = 100000;
     bool showProgress = false;
-    PrimeTest primeTest = PrimeTest::MillerRabin; 
+    PrimeTest primeTest = PrimeTest::BPSW; 
 };
 
 // Throw exception instead of exit(1) for graceful multi-thread shutdown
@@ -828,9 +828,9 @@ void print_usage(const char* prog) {
               << "  --seg-size=N     Even integers per segment (default: 10,000,000)\n"
               << "  --p-small=N      GPU prime search bound (max: 4,000,000,000)\n"
               << "  --batch-size=N   Primes per GPU batch (default: 100000)\n"
-              << "  --gpus=N         Number of GPUs to use (default: 1)\n"
+              << "  --gpus=N         Number of GPUs to use (default: 1 | all: -1)\n"
               << "  --start=N        Starting number for verification (default: 4)\n"
-              << "  --primetest=X    Primality test: MR (default) or BPSW\n"
+              << "  --primetest=X    Primality test: BPSW (default) or MR\n"
               << "  --progress       Show real-time progress updates\n"
               << "  -h, --help       Show this help message\n";
 }
