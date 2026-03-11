@@ -213,19 +213,6 @@ __device__ bool gpu_sprp_base2(uint64_t n) {
     return false;
 }
 
-// Method A*: find D, then P=1,Q=(1-D)/4; if Q==-1 set P=Q=5
-__device__ void gpu_lucas_params_Astar(uint64_t n,
-                                       int64_t& D, int64_t& P, int64_t& Q) {
-    D = 5; int step = 2;
-    while (gpu_jacobi(D, n) != -1) {
-        D = -D - step;
-        step = -step;
-    }
-    P = 1;
-    Q = (1 - D) / 4;
-    if (Q == -1) { P = 5; Q = 5; }
-}
-
 // Strong Lucas test — all products go through mulmod64 to avoid overflow
 __device__ bool gpu_strong_lucas_prp(uint64_t n,
                                      int64_t D, int64_t P, int64_t Q) {
@@ -270,7 +257,8 @@ __device__ bool gpu_strong_lucas_prp(uint64_t n,
     }
 
     if (uU == 0) return true;
-    for (uint64_t r = 0; r < s; r++) {
+    if (uV == 0) return true;
+    for (uint64_t r = 0; r < s-1; r++) {
         uint64_t twoQk = mulmod64(2, uQk, n);
         uV  = (mulmod64(uV, uV, n) + n - twoQk) % n;
         uQk = mulmod64(uQk, uQk, n);
@@ -280,12 +268,33 @@ __device__ bool gpu_strong_lucas_prp(uint64_t n,
 }
 
 __device__ bool gpu_is_prime_bpsw(uint64_t n) {
-    if (n < 2) return false;
+    if (n < 2)  return false;
     if (n == 2 || n == 3) return true;
     if ((n & 1) == 0) return false;
     if (!gpu_sprp_base2(n)) return false;
-    int64_t D, P, Q;
-    gpu_lucas_params_Astar(n, D, P, Q);
+
+    // Find D via Method A* with proper termination
+    int64_t D = 5;
+    int step = 2;
+    for (int i = 0; i < 40; i++) {
+        int j = gpu_jacobi(D, n);
+        if (j == -1) break;
+        if (j == 0) {
+            uint64_t absD = (D >= 0) ? (uint64_t)D : (uint64_t)(-D);
+            if (absD % n != 0) return false;  // genuine factor: 1 < gcd(|D|,n) < n
+            // else n divides |D| (only happens for tiny n like n=5 where D=n)
+            // skip this D and try the next one
+        }
+        D = -D - step;
+        step = -step;
+    }
+    // After 40 tries with no -1: n is a perfect square → composite
+    // (a perfect square is never prime; this guards the infinite loop)
+    if (gpu_jacobi(D, n) != -1) return false;
+
+    int64_t P = 1, Q = (1 - D) / 4;
+    if (Q == -1) { P = 5; Q = 5; }
+
     return gpu_strong_lucas_prp(n, D, P, Q);
 }
 
@@ -297,15 +306,15 @@ __device__ bool is_prime_q(
     if (q == 2) return true;
     if ((q & 1) == 0) return false;
 
-    if (q <= small_high) {
-        uint64_t bit_pos  = (q - 3) / 2;
-        return (d_small[bit_pos / 64] >> (bit_pos % 64)) & 1ULL;
-    }
+    // if (q <= small_high) {
+    //     uint64_t bit_pos  = (q - 3) / 2;
+    //     return (d_small[bit_pos / 64] >> (bit_pos % 64)) & 1ULL;
+    // }
 
-    if (q >= q_low && q <= q_high) {
-        uint64_t bit_pos  = (q - q_low) / 2;
-        return (d_seg_bits[bit_pos / 64] >> (bit_pos % 64)) & 1ULL;
-    }
+    // if (q >= q_low && q <= q_high) {
+    //     uint64_t bit_pos  = (q - q_low) / 2;
+    //     return (d_seg_bits[bit_pos / 64] >> (bit_pos % 64)) & 1ULL;
+    // }
 
     if (g_device_prime_test == PrimeTest::BPSW)
         return gpu_is_prime_bpsw(q);
@@ -543,18 +552,6 @@ static bool cpu_sprp_base2(uint64_t n) {
     return false;
 }
 
-static void cpu_lucas_params_Astar(uint64_t n,
-                                   int64_t& D, int64_t& P, int64_t& Q) {
-    D = 5; int step = 2;
-    while (cpu_jacobi(D, n) != -1) {
-        D = -D - step;
-        step = -step;
-    }
-    P = 1;
-    Q = (1 - D) / 4;
-    if (Q == -1) { P = 5; Q = 5; }
-}
-
 static bool cpu_strong_lucas_prp(uint64_t n,
                                   int64_t D, int64_t P, int64_t Q) {
     uint64_t d = n + 1, s = 0;
@@ -595,7 +592,8 @@ static bool cpu_strong_lucas_prp(uint64_t n,
     }
 
     if (uU == 0) return true;
-    for (uint64_t r = 0; r < s; r++) {
+    if (uV == 0) return true;
+    for (uint64_t r = 0; r < s-1; r++) {
         uV  = (mm(uV, uV) + n - mm(2, uQk)) % n;
         uQk = mm(uQk, uQk);
         if (uV == 0) return true;
@@ -604,23 +602,45 @@ static bool cpu_strong_lucas_prp(uint64_t n,
 }
 
 static bool cpu_is_prime_bpsw(uint64_t n) {
-    if (n < 2) return false;
+    if (n < 2)  return false;
     if (n == 2 || n == 3) return true;
     if ((n & 1) == 0) return false;
     if (!cpu_sprp_base2(n)) return false;
-    int64_t D, P, Q;
-    cpu_lucas_params_Astar(n, D, P, Q);
+
+    int64_t D = 5;
+    int step = 2;
+    for (int i = 0; i < 40; i++) {
+        int j = cpu_jacobi(D, n);
+        if (j == -1) break;
+        if (j == 0) {
+            uint64_t absD = (D >= 0) ? (uint64_t)D : (uint64_t)(-D);
+            if (absD % n != 0) return false;  // genuine factor: 1 < gcd(|D|,n) < n
+            // else n divides |D| (only happens for tiny n like n=5 where D=n)
+            // skip this D and try the next one
+        }
+        D = -D - step;
+        step = -step;
+    }
+    if (cpu_jacobi(D, n) != -1) return false;
+
+    int64_t P = 1, Q = (1 - D) / 4;
+    if (Q == -1) { P = 5; Q = 5; }
+
     return cpu_strong_lucas_prp(n, D, P, Q);
 }
 
-static bool cpu_optimized_check(uint64_t n, const std::vector<uint64_t>& cpu_primes) {
+static bool cpu_optimized_check(uint64_t n, const std::vector<uint64_t>& cpu_primes,
+                                 PrimeTest primeTest) {
     for (uint64_t p : cpu_primes) {
         if (p > n / 2) break;
         uint64_t q = n - p;
         if (q <= PHASE2_SIEVE_LIMIT) {
             if (std::binary_search(cpu_primes.begin(), cpu_primes.end(), q)) return true;
         } else {
-            if (cpu_miller_rabin(q)) return true;
+            bool q_prime = (primeTest == PrimeTest::BPSW)
+                           ? cpu_is_prime_bpsw(q)
+                           : cpu_miller_rabin(q);
+            if (q_prime) return true;
         }
     }
     return false;
@@ -635,11 +655,14 @@ void run_gpu_worker(
     const PrimeBitset& small_bitset,
     const std::vector<uint64_t>& small_primes,
     const std::vector<uint64_t>& gpu_primes,
-    const std::vector<uint64_t>& cpu_primes
+    const std::vector<uint64_t>& cpu_primes,
+    PrimeTest primeTest
 )
 {
     try {
         CUDA_CHECK(cudaSetDevice(device_id));
+        // Copy primality-test selector to this device's constant memory
+        CUDA_CHECK(cudaMemcpyToSymbol(g_device_prime_test, &primeTest, sizeof(PrimeTest)));
         cudaStream_t stream;
         CUDA_CHECK(cudaStreamCreate(&stream));
 
@@ -727,7 +750,7 @@ void run_gpu_worker(
                         g_total_phase2_count.fetch_add(1, std::memory_order_relaxed);
                         // safe_log("[GPU ", device_id, "] Phase 2 fallback for n = ", n, "...");
                         
-                        if (!cpu_optimized_check(n, cpu_primes)) {
+                        if (!cpu_optimized_check(n, cpu_primes, primeTest)) {
                             g_failure.store(true, std::memory_order_relaxed);
                             g_failure_n.store(n, std::memory_order_relaxed);
                             break;
@@ -1031,7 +1054,8 @@ int main(int argc, char** argv) {
         workers.emplace_back(
             run_gpu_worker, g, LIMIT, SEG_SIZE, P_SMALL, opt.batchSize,
             small_high, small_bytes, std::cref(small_bitset),
-            std::cref(small_primes), std::cref(gpu_primes), std::cref(cpu_primes)
+            std::cref(small_primes), std::cref(gpu_primes), std::cref(cpu_primes),
+            opt.primeTest
         );
     }
 
