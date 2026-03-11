@@ -7,7 +7,7 @@
 - **No impact on wall‑clock time**: These primality tests are only invoked as *untriggered fallbacks* and in rare GPU overflow cases. For typical search ranges, overall runtime remains unchanged.
 
 ### CLI & Configuration
-- **Added `--primetest` flag** to select between `mr` (Miller–Rabin) and `bpsw` (Baillie–PSW) for CPU‑side fallback and GPU overflow checks.  
+- **Added `--primetest` flag**: Selects the primality test (`mr` or `bpsw`) used by **both GPU Phase 1 primality checks** and **CPU Phase 2 fallback**. 
 - **Method A\* parameter selection**: Uses the \(P=5, Q=5\) override to avoid the pseudoprime class identified in recent research.
 
 ### Mathematical Correctness
