@@ -5,7 +5,7 @@
 #pragma once
 #include <cstdint>
 
-static const uint64_t TILE_ODDS = 32768;
+static const uint64_t TILE_ODDS = 16384;
 
 // Overflow-safe tiled sieve
 __global__ void tiled_sieve_segment_kernel(
@@ -15,7 +15,7 @@ __global__ void tiled_sieve_segment_kernel(
     uint64_t        small_prime_count,
     uint64_t*       __restrict__ d_seg_bits)
 {
-    extern __shared__ uint64_t sh_tile[]; 
+    extern __shared__ unsigned char sh_tile[];
 
     uint64_t num_odds = (q_high - q_low) / 2 + 1;
     uint64_t num_tiles = (num_odds + TILE_ODDS - 1) / TILE_ODDS;
@@ -29,8 +29,8 @@ __global__ void tiled_sieve_segment_kernel(
     uint64_t tile_odd_count = tile_odd_end - tile_odd_start;
     uint64_t tile_word_count = (tile_odd_count + 63) / 64;
 
-    for (uint64_t w = threadIdx.x; w < tile_word_count; w += blockDim.x) {
-        sh_tile[w] = ~0ULL;
+    for (uint64_t i = threadIdx.x; i < tile_odd_count; i += blockDim.x) {
+        sh_tile[i] = 1;
     }
     __syncthreads();
 
@@ -59,15 +59,20 @@ __global__ void tiled_sieve_segment_kernel(
         }
 
         for (int64_t bit = first_bit; bit < (int64_t)tile_odd_end; bit += (int64_t)p) {
-            uint64_t local_bit = (uint64_t)(bit - tile_odd_start);
-            atomicAnd(reinterpret_cast<unsigned long long*>(&sh_tile[local_bit / 64]),
-                      ~(1ULL << (local_bit % 64)));
+            sh_tile[bit - tile_odd_start] = 0;
         }
     }
     __syncthreads();
 
     uint64_t global_word_offset = tile_odd_start / 64;
     for (uint64_t w = threadIdx.x; w < tile_word_count; w += blockDim.x) {
-        d_seg_bits[global_word_offset + w] = sh_tile[w];
+        uint64_t word = 0;
+        uint64_t base = w * 64;
+        for (uint64_t b = 0; b < 64; b++) {
+            if (base + b < tile_odd_count && sh_tile[base + b]) {
+                word |= (1ULL << b);
+            }
+        }
+        d_seg_bits[global_word_offset + w] = word;
     }
 }

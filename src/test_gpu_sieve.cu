@@ -36,7 +36,7 @@ static uint64_t check_range(uint64_t q_low, uint64_t q_high,
                   small_primes.size() * sizeof(uint64_t), cudaMemcpyHostToDevice));
 
     uint32_t num_tiles = (uint32_t)((num_odds + TILE_ODDS - 1) / TILE_ODDS);
-    size_t shmem = (TILE_ODDS / 64) * sizeof(uint64_t);
+    size_t shmem = TILE_ODDS * sizeof(unsigned char);
 
     tiled_sieve_segment_kernel<<<num_tiles, 256, shmem>>>(
         q_low, q_high, d_primes, small_primes.size(), d_bits);

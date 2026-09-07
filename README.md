@@ -231,7 +231,6 @@ All timings are wall‑clock time. All configurations are recorded exactly as ru
 ```text
 - `src/`
   - `goldbach.cu`        : Multi-GPU range verifier (Flagship).
-  - `goldbach_gpu5a.cu`  : (experimental for testing new features).
   - `big_check.cpp`      : Arbitrary precision checker (GMP + OpenMP).
   - `single_check.cu`    : 64-bit deterministic Miller-Rabin checker.
   - `cpu_goldbach.cpp`   : Sequential CPU baseline oracle.

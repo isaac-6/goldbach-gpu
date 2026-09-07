@@ -320,7 +320,7 @@ void run_gpu_worker(
 
             uint64_t num_odds = (q_high - q_low) / 2 + 1;
             uint32_t num_tiles = (uint32_t)((num_odds + TILE_ODDS - 1) / TILE_ODDS);
-            size_t shared_bytes = (TILE_ODDS / 64) * sizeof(uint64_t);
+            size_t shared_bytes = TILE_ODDS * sizeof(unsigned char);
 
             // A. Sieve Segment
             tiled_sieve_segment_kernel<<<num_tiles, THREADS_PER_BLOCK, shared_bytes, stream>>>(

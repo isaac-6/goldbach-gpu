@@ -50,13 +50,6 @@ target_link_libraries(goldbach_lib PUBLIC OpenMP::OpenMP_CXX)
 
 # --- Executables ---
 
-# Multi-GPU 5a (experimental)
-add_executable(goldbach_gpu5a src/goldbach_gpu5a.cu)
-target_link_libraries(goldbach_gpu5a PRIVATE goldbach_lib)
-set_target_properties(goldbach_gpu5a PROPERTIES
-    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
-
-
 # Multi-GPU (Main Function)
 add_executable(goldbach src/goldbach.cu)
 target_link_libraries(goldbach PRIVATE goldbach_lib)
@@ -85,6 +78,12 @@ set_target_properties(test_gpu_sieve PROPERTIES
 add_executable(test_primality src/test_primality.cu)
 target_link_libraries(test_primality PRIVATE goldbach_lib)
 set_target_properties(test_primality PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+
+# 7. analyse pmin
+add_executable(analyze_pmin src/analyze_pmin.cpp)
+target_link_libraries(analyze_pmin PRIVATE goldbach_lib)
+set_target_properties(analyze_pmin PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 
 # --- Installation/Output ---
