@@ -129,6 +129,11 @@ __device__ uint64_t mulmod64(uint64_t a, uint64_t b, uint64_t m) {
     return (uint64_t)((__uint128_t)a * b % m);
 }
 
+// (a + n) / 2 for odd a, odd n, without overflow at n > 2^63.
+__host__ __device__ __forceinline__ uint64_t halve_mod(uint64_t a, uint64_t n) {
+    return (uint64_t)(((__uint128_t)a + n) >> 1);
+}
+
 __device__ uint64_t powmod64(uint64_t base, uint64_t exp, uint64_t mod) {
     uint64_t result = 1;
     base %= mod;
@@ -236,19 +241,17 @@ __device__ bool gpu_strong_lucas_prp(uint64_t n,
         uint64_t U2  = mulmod64(uU, uV, n);
         uint64_t VV  = mulmod64(uV, uV, n);
         uint64_t twoQk = mulmod64(2, uQk, n);
-        uint64_t V2  = (VV + n - twoQk) % n;
+        uint64_t V2  = (uint64_t)(((__uint128_t)VV + n - twoQk) % n);
         uint64_t Q2  = mulmod64(uQk, uQk, n);
         uU = U2; uV = V2; uQk = Q2;
 
         if ((d >> bit) & 1) {
             // Step
             uint64_t tU = (mulmod64(uP, uU, n) + uV) % n;
-            if (tU & 1) tU += n;
-            tU >>= 1;
+            tU = (tU & 1) ? halve_mod(tU, n) : (tU >> 1);
 
             uint64_t tV = (mulmod64(uD, uU, n) + mulmod64(uP, uV, n)) % n;
-            if (tV & 1) tV += n;
-            tV >>= 1;
+            tV = (tV & 1) ? halve_mod(tV, n) : (tV >> 1);
 
             uU = tU;
             uV = tV;
@@ -260,7 +263,7 @@ __device__ bool gpu_strong_lucas_prp(uint64_t n,
     if (uV == 0) return true;
     for (uint64_t r = 0; r < s-1; r++) {
         uint64_t twoQk = mulmod64(2, uQk, n);
-        uV  = (mulmod64(uV, uV, n) + n - twoQk) % n;
+        uV  = (uint64_t)(((__uint128_t)mulmod64(uV, uV, n) + n - twoQk) % n);
         uQk = mulmod64(uQk, uQk, n);
         if (uV == 0) return true;
     }
@@ -573,18 +576,16 @@ static bool cpu_strong_lucas_prp(uint64_t n,
     int lead = 63 - __builtin_clzll(d);
     for (int bit = lead; bit >= 0; bit--) {
         uint64_t U2  = mm(uU, uV);
-        uint64_t V2  = (mm(uV, uV) + n - mm(2, uQk)) % n;
+        uint64_t V2  = (uint64_t)(((__uint128_t)mm(uV, uV) + n - mm(2, uQk)) % n);
         uint64_t Q2  = mm(uQk, uQk);
         uU = U2; uV = V2; uQk = Q2;
 
         if ((d >> bit) & 1) {
             uint64_t tU = (mm(uP, uU) + uV) % n;
-            if (tU & 1) tU += n;
-            tU >>= 1;
+            tU = (tU & 1) ? halve_mod(tU, n) : (tU >> 1);
 
             uint64_t tV = (mm(uD, uU) + mm(uP, uV)) % n;
-            if (tV & 1) tV += n;
-            tV >>= 1;
+            tV = (tV & 1) ? halve_mod(tV, n) : (tV >> 1);
 
             uU = tU; uV = tV;
             uQk = mm(uQk, uQ_base);
@@ -594,7 +595,7 @@ static bool cpu_strong_lucas_prp(uint64_t n,
     if (uU == 0) return true;
     if (uV == 0) return true;
     for (uint64_t r = 0; r < s-1; r++) {
-        uV  = (mm(uV, uV) + n - mm(2, uQk)) % n;
+        uV  = (uint64_t)(((__uint128_t)mm(uV, uV) + n - mm(2, uQk)) % n);
         uQk = mm(uQk, uQk);
         if (uV == 0) return true;
     }
