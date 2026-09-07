@@ -80,6 +80,12 @@ target_link_libraries(test_primality PRIVATE goldbach_lib)
 set_target_properties(test_primality PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 
+# 7. analyse pmin
+add_executable(analyze_pmin src/analyze_pmin.cpp)
+target_link_libraries(analyze_pmin PRIVATE goldbach_lib)
+set_target_properties(analyze_pmin PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+
 # --- Installation/Output ---
 # (Optional) Set output directory to a bin folder
 set_target_properties(big_check single_check cpu_goldbach
