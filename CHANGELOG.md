@@ -1,3 +1,25 @@
+## [Unreleased]
+
+### Fixed
+- **Segment sieve correctness.** `tiled_sieve_segment_kernel` marked composites
+  in shared memory with a non-atomic read-modify-write. Threads within a block
+  sieve distinct primes into the same 64-bit words, so concurrent updates were
+  lost and some composites remained marked prime. Because `is_prime_q` consults
+  this bitset, Phase 1 could accept a partition `n = p + q` in which `q` is not
+  prime. Now uses `atomicAnd`. (kudos to Kenzi Voyer for reporting)
+
+### Added
+- `test_gpu_sieve`: differential test comparing `tiled_sieve_segment_kernel`
+  output against the CPU segmented sieve over fixed and randomized ranges,
+  including the `q_low = 3` edge and ranges straddling 2^32.
+
+### Changed
+- Verification throughput at N=1e10 decreases from ~0.44 s to ~1.05 s on a
+  single RTX 5090 as a result of the correctness fix. Further optimization is in progress.
+
+---
+
+
 ## v2.1.0 - 2026-03-11
 
 ### Enhanced Primality Testing (BPSW)
