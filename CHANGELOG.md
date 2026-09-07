@@ -8,10 +8,19 @@
   this bitset, Phase 1 could accept a partition `n = p + q` in which `q` is not
   prime. Now uses `atomicAnd`. (kudos to Kenzi Voyer for reporting)
 
+- **BPSW overflow above 2^63.** Intermediate sums in the strong Lucas test
+  could exceed 64 bits and wrap, causing genuine primes to be reported as
+  composite. Affected the default primality path introduced in v2.1.0 for
+  `n > 2^63` only. The failure direction was safe: false negatives cause
+  Phase 2 fallbacks (never false verification).
+
 ### Added
 - `test_gpu_sieve`: differential test comparing `tiled_sieve_segment_kernel`
   output against the CPU segmented sieve over fixed and randomized ranges,
   including the `q_low = 3` edge and ranges straddling 2^32.
+
+- `test_primality`: cross-checks BPSW against the 12-base deterministic
+  Miller-Rabin oracle, with emphasis on the region above 2^63.
 
 ### Changed
 - Verification throughput at N=1e10 decreases from ~0.44 s to ~1.05 s on a
