@@ -58,10 +58,6 @@ __global__ void tiled_sieve_segment_kernel(
             first_bit += steps * (int64_t)p;
         }
 
-        // for (int64_t bit = first_bit; bit < (int64_t)tile_odd_end; bit += (int64_t)p) {
-        //     uint64_t local_bit = (uint64_t)(bit - tile_odd_start);
-        //     sh_tile[local_bit / 64] &= ~(1ULL << (local_bit % 64));
-        // }
         for (int64_t bit = first_bit; bit < (int64_t)tile_odd_end; bit += (int64_t)p) {
             uint64_t local_bit = (uint64_t)(bit - tile_odd_start);
             atomicAnd(reinterpret_cast<unsigned long long*>(&sh_tile[local_bit / 64]),
