@@ -22,9 +22,17 @@
 - `test_primality`: cross-checks BPSW against the 12-base deterministic
   Miller-Rabin oracle, with emphasis on the region above 2^63.
 
+- `analyze_pmin`: measures the distribution of the first successful prime
+  index in Phase 1, per number and per warp.
+
 ### Changed
 - Verification throughput at N=1e10 decreases from ~0.44 s to ~1.05 s on a
   single RTX 5090 as a result of the correctness fix. Further optimization is in progress.
+
+- Segment sieve marks composites as bytes rather than bits in shared memory,
+  removing the atomic read-modify-write on contended words. Verification at
+  N=1e11 improves from 11.09 s to 4.65 s; the sieve kernel itself is 6.8x
+  faster. VRAM representation is unchanged.
 
 ---
 
