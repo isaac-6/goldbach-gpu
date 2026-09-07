@@ -29,3 +29,6 @@ Makefile
 .vscode/
 *.swp
 *~
+
+# Beta
+evidence_prefix.txt

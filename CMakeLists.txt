@@ -75,6 +75,12 @@ target_link_libraries(single_check PRIVATE goldbach_lib)
 add_executable(cpu_goldbach src/cpu_goldbach.cpp)
 target_link_libraries(cpu_goldbach PRIVATE goldbach_lib OpenMP::OpenMP_CXX)
 
+# 5. GPU Sieve Differential Test
+add_executable(test_gpu_sieve src/test_gpu_sieve.cu)
+target_link_libraries(test_gpu_sieve PRIVATE goldbach_lib)
+set_target_properties(test_gpu_sieve PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+
 # --- Installation/Output ---
 # (Optional) Set output directory to a bin folder
 set_target_properties(big_check single_check cpu_goldbach
