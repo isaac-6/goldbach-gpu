@@ -81,6 +81,12 @@ target_link_libraries(test_gpu_sieve PRIVATE goldbach_lib)
 set_target_properties(test_gpu_sieve PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 
+# 6. primality test
+add_executable(test_primality src/test_primality.cu)
+target_link_libraries(test_primality PRIVATE goldbach_lib)
+set_target_properties(test_primality PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+
 # --- Installation/Output ---
 # (Optional) Set output directory to a bin folder
 set_target_properties(big_check single_check cpu_goldbach
