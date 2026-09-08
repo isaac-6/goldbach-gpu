@@ -4,6 +4,7 @@
 
 #pragma once
 #include <cstdint>
+#include <algorithm>
 
 // Odd numbers per sieve tile. Shared memory per block is TILE_ODDS bytes
 // (one byte per odd number), so this trades occupancy against the fixed
@@ -18,6 +19,23 @@
 // 16384 -> 1.379s, 32768 -> 1.284s.
 #ifndef TILE_ODDS
 #define TILE_ODDS 32768
+#endif
+
+// Prime-list partition point: primes below this go to the tiled kernel, the
+// rest to large_prime_sieve_kernel. Independent of TILE_ODDS -- tile width is
+// a shared-memory/occupancy question, this is a per-tile-division vs global-
+// atomic tradeoff. Both kernels are correct for any split point.
+//
+// Measured at 1e11 with TILE_ODDS=32768 (RTX 5090), mean of three runs:
+//   8192 -> 1.615s, 16384 -> 1.243s, 32768 -> 1.012s,
+//   65536 -> 0.929s, 131072 -> 0.921s, 262144 -> 0.984s
+//
+// The optimum sits at ~4x TILE_ODDS, so the remaining sieve time is atomic-
+// bound rather than division-bound: primes marking at most one byte per tile
+// are still cheaper left in the tiled kernel, paying full per-tile divisions,
+// than moved to global atomicAnd. Only past 131072 does division cost win.
+#ifndef SPLIT_THRESHOLD
+#define SPLIT_THRESHOLD 131072
 #endif
 
 // Overflow-safe tiled sieve
@@ -87,5 +105,92 @@ __global__ void tiled_sieve_segment_kernel(
             }
         }
         d_seg_bits[global_word_offset + w] = word;
+    }
+}
+
+// -------------------------------------------------------
+// Large-prime sieve: one thread per prime, straight to global memory.
+// -------------------------------------------------------
+// A prime p >= TILE_ODDS marks at most one byte in any given tile, yet the
+// tiled kernel above pays three 64-bit divisions for it in every tile --
+// and 64-bit division is emulated on NVIDIA hardware. Splitting those primes
+// out moves that cost from once-per-tile-per-prime to once-per-segment-per-
+// prime.
+//
+// The marking is sparse: over a ~4e8 wide q span a prime near 1e6 marks ~200
+// positions and one near 1e5 marks ~2000, scattered across the whole segment
+// bitset rather than concentrated in one tile.
+//
+// The atomic is required for the same reason the shared-memory version needed
+// one: clearing a bit is a read-modify-write, and different primes land on
+// different bits of the same 64-bit word. Contention is low because the
+// writes are spread over the entire bitset.
+//
+// ORDERING: this must run after tiled_sieve_segment_kernel, which writes whole
+// words (overwriting, not merging) and would otherwise erase these marks.
+// Launching both on the same stream is sufficient.
+//
+// The prime list is sorted ascending, so threads in a warp get adjacent primes
+// and therefore near-identical iteration counts.
+__global__ void large_prime_sieve_kernel(
+    uint64_t        q_low,
+    uint64_t        q_high,
+    const uint64_t* __restrict__ d_large_primes,
+    uint64_t        large_prime_count,
+    uint64_t*       d_seg_bits)
+{
+    uint64_t idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= large_prime_count) return;
+
+    uint64_t p = d_large_primes[idx];
+    if (p < 3) return;
+    if (p > q_high / p) return;   // OVERFLOW-SAFE, and p*p > q_high marks nothing
+
+    uint64_t first = (q_low + p - 1) / p * p;
+    if ((first & 1) == 0) first += p;
+    // p*p is odd for odd p, so this needs no second parity fixup.
+    if (first < p * p) first = p * p;
+    if (first > q_high) return;
+
+    // Step in bit-index space: q advances by 2p, so i advances by p. Iterating
+    // on the index rather than on q keeps the loop free of any overflow risk
+    // near the top of the uint64_t range.
+    uint64_t num_odds = (q_high - q_low) / 2 + 1;
+    for (uint64_t i = (first - q_low) >> 1; i < num_odds; i += p) {
+        atomicAnd(reinterpret_cast<unsigned long long*>(&d_seg_bits[i >> 6]),
+                  ~(1ULL << (i & 63)));
+    }
+}
+
+// Split point for a sorted prime list: the number of primes below
+// SPLIT_THRESHOLD. Those go to the tiled kernel, the rest to
+// large_prime_sieve_kernel.
+static inline uint64_t sieve_split_prime_count(const uint64_t* primes,
+                                               uint64_t count)
+{
+    return (uint64_t)(std::lower_bound(primes, primes + count,
+                                       (uint64_t)SPLIT_THRESHOLD) - primes);
+}
+
+// Runs the full segment sieve: tiled kernel over the small primes, then the
+// large-prime kernel over the rest. Shared by the verifier and its tests so
+// both exercise the same pipeline.
+static inline void launch_segment_sieve(
+    uint64_t q_low, uint64_t q_high,
+    const uint64_t* d_primes, uint64_t small_count, uint64_t large_count,
+    uint64_t* d_seg_bits, int threads_per_block, cudaStream_t stream)
+{
+    uint64_t num_odds  = (q_high - q_low) / 2 + 1;
+    uint32_t num_tiles = (uint32_t)((num_odds + TILE_ODDS - 1) / TILE_ODDS);
+
+    tiled_sieve_segment_kernel<<<num_tiles, threads_per_block,
+                                 TILE_ODDS * sizeof(unsigned char), stream>>>(
+        q_low, q_high, d_primes, small_count, d_seg_bits);
+
+    if (large_count > 0) {
+        uint32_t blocks =
+            (uint32_t)((large_count + threads_per_block - 1) / threads_per_block);
+        large_prime_sieve_kernel<<<blocks, threads_per_block, 0, stream>>>(
+            q_low, q_high, d_primes + small_count, large_count, d_seg_bits);
     }
 }

@@ -35,11 +35,9 @@ static uint64_t check_range(uint64_t q_low, uint64_t q_high,
     CK(cudaMemcpy(d_primes, small_primes.data(),
                   small_primes.size() * sizeof(uint64_t), cudaMemcpyHostToDevice));
 
-    uint32_t num_tiles = (uint32_t)((num_odds + TILE_ODDS - 1) / TILE_ODDS);
-    size_t shmem = TILE_ODDS * sizeof(unsigned char);
-
-    tiled_sieve_segment_kernel<<<num_tiles, 256, shmem>>>(
-        q_low, q_high, d_primes, small_primes.size(), d_bits);
+    uint64_t sc = sieve_split_prime_count(small_primes.data(), small_primes.size());
+    launch_segment_sieve(q_low, q_high, d_primes,
+                         sc, small_primes.size() - sc, d_bits, 256, 0);
     CK(cudaGetLastError());
     CK(cudaDeviceSynchronize());
 
@@ -73,11 +71,19 @@ static uint64_t check_range(uint64_t q_low, uint64_t q_high,
 int main() {
     uint64_t total = 0;
 
+    // A prime only reaches large_prime_sieve_kernel when it is >= TILE_ODDS,
+    // and only marks anything when p*p <= q_high. Since check_range is handed
+    // primes up to isqrt(hi), that path is exercised only for hi >= TILE_ODDS^2
+    // (~1.07e9 at the default). The ranges below 2^32 therefore cover the tiled
+    // kernel alone; the high ranges are what gate the large-prime split.
     struct { uint64_t lo, hi; const char* name; } fixed[] = {
         {3,          1000000,     "from 3 (q_low edge)"},
         {999983,     2000000,     "small offset"},
         {4294967291ULL, 4295000000ULL, "straddling 2^32"},
         {1000000000ULL, 1000200000ULL, "1e9"},
+        {1073741824ULL, 1074141824ULL, "TILE_ODDS^2 boundary"},
+        {100000000000ULL, 100000400000ULL, "1e11"},
+        {1000000000000ULL, 1000000400000ULL, "1e12"},
     };
 
     for (auto& t : fixed) {
@@ -91,9 +97,12 @@ int main() {
     }
 
     std::mt19937_64 rng(20260907);
-    printf("  [randomized] 50 ranges\n");
-    for (int i = 0; i < 50; i++) {
-        uint64_t lo = 3 + (rng() % 1000000000ULL);
+    printf("  [randomized] 50 ranges below 1e9, 25 up to 1e12\n");
+    for (int i = 0; i < 75; i++) {
+        // The first 50 stay low (tiled kernel only); the rest are drawn high
+        // enough that the large-prime kernel has work to do.
+        uint64_t lo = (i < 50) ? 3 + (rng() % 1000000000ULL)
+                               : 1073741824ULL + (rng() % 1000000000000ULL);
         uint64_t hi = lo + 100000 + (rng() % 400000);
         uint64_t root = 1; while ((root + 1) * (root + 1) <= hi) root++;
         auto primes = simple_sieve(root + 1);
