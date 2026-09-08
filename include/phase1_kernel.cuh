@@ -47,9 +47,14 @@ __device__ bool is_prime_q(
 // -------------------------------------------------------
 // One thread per even number in segment.
 //
+// d_verified is a bitset: bit j of word w is the even number
+// seg_even_start + 2*(64*w + j). One thread per even number means 64 threads
+// share a word, so the set must be an atomicOr. This path runs only for the
+// first segment or two, so the atomic costs nothing that matters.
+//
 // CRITICAL INVARIANTS:
 // 1. p_batch MUST be sorted in ascending order (allows early termination)
-// 2. d_verified[tid] is monotonic: once set to 1, stays 1 forever
+// 2. d_verified bits are monotonic: once set, they stay set forever
 // 3. Kernel may be called multiple times with different p_batch slices
 // 4. Early return on d_verified[tid] == 1 is SAFE because:
 //    - We only need ONE valid Goldbach partition (p + q = n)
@@ -74,11 +79,14 @@ __global__ void goldbach_phase1_kernel(
     const uint64_t* __restrict__ d_seg_bits, uint64_t q_low, uint64_t q_high,
     uint64_t seg_even_start, uint64_t seg_even_count,
     const uint64_t* __restrict__ p_batch, uint64_t p_batch_size,
-    uint8_t* __restrict__ d_verified)
+    uint64_t* d_verified)
 {
     uint64_t tid = blockIdx.x * blockDim.x + threadIdx.x;
     if (tid >= seg_even_count) return;
-    if (d_verified[tid]) return; // Early return monotonic safety
+    // Early return monotonic safety. This read is not atomic while other lanes
+    // atomicOr the same word, but bits only ever go 0 -> 1, so a stale read
+    // costs redundant work and never a wrong answer.
+    if ((d_verified[tid >> 6] >> (tid & 63)) & 1ULL) return;
 
     uint64_t n = seg_even_start + tid * 2;
 
@@ -88,7 +96,8 @@ __global__ void goldbach_phase1_kernel(
         uint64_t q = n - p;
 
         if (is_prime_q(q, d_small, small_high, d_seg_bits, q_low, q_high)) {
-            d_verified[tid] = 1;
+            atomicOr(reinterpret_cast<unsigned long long*>(&d_verified[tid >> 6]),
+                     1ULL << (tid & 63));
             return;
         }
     }
@@ -123,7 +132,7 @@ __global__ void goldbach_phase1_transposed_kernel(
     const uint64_t* __restrict__ d_seg_bits, uint64_t q_low,
     uint64_t seg_even_start, uint64_t seg_even_count,
     const uint64_t* __restrict__ p_batch, uint64_t p_batch_size,
-    uint8_t* __restrict__ d_verified)
+    uint64_t* __restrict__ d_verified)
 {
     uint64_t t           = blockIdx.x * blockDim.x + threadIdx.x;
     uint64_t group_start = t * 64;                 // index of this thread's first even number
@@ -134,12 +143,16 @@ __global__ void goldbach_phase1_transposed_kernel(
 
     uint64_t n_base = seg_even_start + 2 * group_start;
 
+    // Thread t owns word t of the d_verified bitset outright -- no other thread
+    // writes it, so the accumulate is a plain load and store, not an atomic.
+    //
     // Tail masking: on the final partial group the high bits cover numbers past
     // the range. Seed them to 1 so verified_word can still reach ~0ULL and take
-    // the early exit; they are never written back.
-    uint64_t verified_word = (valid == 64) ? 0ULL : (~0ULL << valid);
-    for (uint64_t j = 0; j < valid; j++)
-        if (d_verified[group_start + j]) verified_word |= (1ULL << j);
+    // the early exit. They are stored, so on this path the tail ends up set;
+    // count_unverified_kernel does not rely on that (the scalar path leaves the
+    // same bits clear) and masks them itself.
+    uint64_t tail_mask     = (valid == 64) ? 0ULL : (~0ULL << valid);
+    uint64_t verified_word = d_verified[t] | tail_mask;
 
     for (uint64_t i = 0; i < p_batch_size && verified_word != ~0ULL; i++) {
         uint64_t p = p_batch[i];
@@ -163,8 +176,7 @@ __global__ void goldbach_phase1_transposed_kernel(
         verified_word |= window;
     }
 
-    for (uint64_t j = 0; j < valid; j++)
-        if ((verified_word >> j) & 1ULL) d_verified[group_start + j] = 1;
+    d_verified[t] = verified_word;
 }
 
 // -------------------------------------------------------
@@ -191,7 +203,7 @@ static inline void launch_goldbach_phase1(
     const uint64_t* d_seg_bits, uint64_t q_low, uint64_t q_high,
     uint64_t seg_even_start, uint64_t seg_even_count,
     const uint64_t* d_p_batch, uint64_t p_batch_size,
-    uint8_t* d_verified, uint64_t p_small,
+    uint64_t* d_verified, uint64_t p_small,
     int threads_per_block, cudaStream_t stream)
 {
     if (seg_even_start > 2 * p_small + 128) {

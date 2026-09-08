@@ -116,19 +116,20 @@ static uint64_t check_range(uint64_t n_low, uint64_t n_high, uint64_t p_small,
 
     uint64_t *d_small = nullptr, *d_small_primes = nullptr;
     uint64_t *d_seg_bits = nullptr, *d_p_batch = nullptr;
-    uint8_t  *d_verified = nullptr;
+    uint64_t *d_verified = nullptr;   // bitset: 1 bit per even number
+    uint64_t verified_words = (even_count + 63) / 64;
 
     CK(cudaMalloc(&d_small, small_bytes));
     CK(cudaMalloc(&d_small_primes, small_primes.size() * sizeof(uint64_t)));
     // +1 padding word for the transposed kernel's one-word overread.
     CK(cudaMalloc(&d_seg_bits, (seg_words + 1) * sizeof(uint64_t)));
     CK(cudaMalloc(&d_p_batch, std::min(P_BATCH, (uint64_t)gpu_primes.size()) * sizeof(uint64_t)));
-    CK(cudaMalloc(&d_verified, even_count));
+    CK(cudaMalloc(&d_verified, verified_words * sizeof(uint64_t)));
 
     CK(cudaMemcpy(d_small, small_bitset.data(), small_bytes, cudaMemcpyHostToDevice));
     CK(cudaMemcpy(d_small_primes, small_primes.data(),
                   small_primes.size() * sizeof(uint64_t), cudaMemcpyHostToDevice));
-    CK(cudaMemset(d_verified, 0, even_count));
+    CK(cudaMemset(d_verified, 0, verified_words * sizeof(uint64_t)));
     CK(cudaMemset(d_seg_bits, 0, (seg_words + 1) * sizeof(uint64_t)));
 
     PrimeTest primeTest = PrimeTest::BPSW;
@@ -151,12 +152,12 @@ static uint64_t check_range(uint64_t n_low, uint64_t n_high, uint64_t p_small,
     uint64_t prefixes[] = {1, 2, 3, 5, 10, 25, 100, 1000, (uint64_t)gpu_primes.size()};
 
     uint64_t mismatches = 0, shown = 0;
-    std::vector<uint8_t> gpu_verified(even_count);
+    std::vector<uint64_t> gpu_verified(verified_words);
 
     for (uint64_t K : prefixes) {
         if (K > gpu_primes.size()) continue;
 
-        CK(cudaMemset(d_verified, 0, even_count));
+        CK(cudaMemset(d_verified, 0, verified_words * sizeof(uint64_t)));
         for (uint64_t bi = 0; bi < K; bi += P_BATCH) {
             uint64_t bsize = std::min(P_BATCH, K - bi);
             CK(cudaMemcpy(d_p_batch, gpu_primes.data() + bi,
@@ -169,10 +170,11 @@ static uint64_t check_range(uint64_t n_low, uint64_t n_high, uint64_t p_small,
             CK(cudaGetLastError());
         }
         CK(cudaDeviceSynchronize());
-        CK(cudaMemcpy(gpu_verified.data(), d_verified, even_count, cudaMemcpyDeviceToHost));
+        CK(cudaMemcpy(gpu_verified.data(), d_verified,
+                      verified_words * sizeof(uint64_t), cudaMemcpyDeviceToHost));
 
         for (uint64_t i = 0; i < even_count; i++) {
-            bool g = gpu_verified[i] != 0;
+            bool g = ((gpu_verified[i >> 6] >> (i & 63)) & 1ULL) != 0;
             bool c = cpu_pmin[i] != NO_P && cpu_pmin[i] < K;
             if (g != c) {
                 mismatches++;
