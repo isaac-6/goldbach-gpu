@@ -35,7 +35,7 @@ static uint64_t check_range(uint64_t q_low, uint64_t q_high,
     CK(cudaMemcpy(d_primes, small_primes.data(),
                   small_primes.size() * sizeof(uint64_t), cudaMemcpyHostToDevice));
 
-    uint64_t sc = tile_sieve_small_prime_count(small_primes.data(), small_primes.size());
+    uint64_t sc = sieve_split_prime_count(small_primes.data(), small_primes.size());
     launch_segment_sieve(q_low, q_high, d_primes,
                          sc, small_primes.size() - sc, d_bits, 256, 0);
     CK(cudaGetLastError());

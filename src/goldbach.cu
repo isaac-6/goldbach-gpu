@@ -216,7 +216,7 @@ void run_gpu_worker(
         // Split the prime list at TILE_ODDS once: primes below it are worth a
         // per-tile scan, the rest are not (see large_prime_sieve_kernel).
         uint64_t sieve_small_count =
-            tile_sieve_small_prime_count(small_primes.data(), small_prime_count);
+            sieve_split_prime_count(small_primes.data(), small_prime_count);
         uint64_t sieve_large_count = small_prime_count - sieve_small_count;
 
         uint64_t* d_small_primes = nullptr;

@@ -21,6 +21,23 @@
 #define TILE_ODDS 32768
 #endif
 
+// Prime-list partition point: primes below this go to the tiled kernel, the
+// rest to large_prime_sieve_kernel. Independent of TILE_ODDS -- tile width is
+// a shared-memory/occupancy question, this is a per-tile-division vs global-
+// atomic tradeoff. Both kernels are correct for any split point.
+//
+// Measured at 1e11 with TILE_ODDS=32768 (RTX 5090), mean of three runs:
+//   8192 -> 1.615s, 16384 -> 1.243s, 32768 -> 1.012s,
+//   65536 -> 0.929s, 131072 -> 0.921s, 262144 -> 0.984s
+//
+// The optimum sits at ~4x TILE_ODDS, so the remaining sieve time is atomic-
+// bound rather than division-bound: primes marking at most one byte per tile
+// are still cheaper left in the tiled kernel, paying full per-tile divisions,
+// than moved to global atomicAnd. Only past 131072 does division cost win.
+#ifndef SPLIT_THRESHOLD
+#define SPLIT_THRESHOLD 131072
+#endif
+
 // Overflow-safe tiled sieve
 __global__ void tiled_sieve_segment_kernel(
     uint64_t        q_low,
@@ -145,13 +162,14 @@ __global__ void large_prime_sieve_kernel(
     }
 }
 
-// Split point for a sorted prime list: the number of primes below TILE_ODDS.
-// Primes below it go to the tiled kernel, the rest to large_prime_sieve_kernel.
-static inline uint64_t tile_sieve_small_prime_count(const uint64_t* primes,
-                                                    uint64_t count)
+// Split point for a sorted prime list: the number of primes below
+// SPLIT_THRESHOLD. Those go to the tiled kernel, the rest to
+// large_prime_sieve_kernel.
+static inline uint64_t sieve_split_prime_count(const uint64_t* primes,
+                                               uint64_t count)
 {
     return (uint64_t)(std::lower_bound(primes, primes + count,
-                                       (uint64_t)TILE_ODDS) - primes);
+                                       (uint64_t)SPLIT_THRESHOLD) - primes);
 }
 
 // Runs the full segment sieve: tiled kernel over the small primes, then the
