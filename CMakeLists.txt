@@ -1,4 +1,15 @@
 cmake_minimum_required(VERSION 3.18)
+
+# Whether the user chose the CUDA architecture must be decided BEFORE
+# project(): enable_language(CUDA) defines CMAKE_CUDA_ARCHITECTURES itself
+# (to 75 on this project's reference machine), so a later "if(NOT DEFINED ...)"
+# can never distinguish a user's choice from CMake's own default.
+if(DEFINED CMAKE_CUDA_ARCHITECTURES)
+    set(_goldbach_arch_was_auto FALSE)
+else()
+    set(_goldbach_arch_was_auto TRUE)
+endif()
+
 project(GoldbachGPU LANGUAGES CXX CUDA)
 
 # --- Options ---
@@ -21,9 +32,56 @@ set(CMAKE_CUDA_FLAGS_RELEASE "${CMAKE_CUDA_FLAGS_RELEASE} -O3 -Xcompiler=-Wall,-
 # Default to building only for the GPU currently installed in the machine (fastest compile).
 # HPC Users: If compiling on a head node without the target GPU, override this by running:
 # cmake .. -DCMAKE_CUDA_ARCHITECTURES="80;90" (for A100 and H100)
-if(NOT DEFINED CMAKE_CUDA_ARCHITECTURES)
+if(_goldbach_arch_was_auto AND NOT CMAKE_CUDA_ARCHITECTURES)
     set(CMAKE_CUDA_ARCHITECTURES native)
 endif()
+
+# Verify what architecture detection actually produced.
+#
+# On this project's reference machine `native` silently resolved to 75 on an
+# sm_120 device. The binary still ran, but only by JIT-compiling the embedded
+# sm_75 PTX, costing ~2% at 1e11 and producing SASS for the wrong target. A
+# bare "is it >= 70" test does NOT catch that, since 75 passes it -- so when we
+# picked the architecture ourselves we also check it against the installed GPU.
+string(REGEX MATCH "[0-9]+" _goldbach_arch "${CMAKE_CUDA_ARCHITECTURES}")
+
+if(_goldbach_arch STREQUAL "")
+    message(FATAL_ERROR
+        "CUDA architecture detection produced no usable value "
+        "(CMAKE_CUDA_ARCHITECTURES='${CMAKE_CUDA_ARCHITECTURES}').\n"
+        "Pass it explicitly, e.g. -DCMAKE_CUDA_ARCHITECTURES=120")
+elseif(_goldbach_arch LESS 70)
+    message(FATAL_ERROR
+        "CUDA architecture ${_goldbach_arch} is below the minimum supported (70).\n"
+        "If this is wrong, pass it explicitly, e.g. -DCMAKE_CUDA_ARCHITECTURES=120")
+endif()
+
+if(_goldbach_arch_was_auto)
+    find_program(NVIDIA_SMI nvidia-smi)
+    if(NVIDIA_SMI)
+        execute_process(
+            COMMAND ${NVIDIA_SMI} --query-gpu=compute_cap --format=csv,noheader
+            OUTPUT_VARIABLE _goldbach_cc RESULT_VARIABLE _goldbach_cc_rc
+            OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET)
+        if(_goldbach_cc_rc EQUAL 0 AND NOT _goldbach_cc STREQUAL "")
+            string(REGEX MATCH "^[0-9]+" _cc_major "${_goldbach_cc}")
+            string(REGEX REPLACE "^[0-9]+\\.([0-9]+).*" "\\1" _cc_minor "${_goldbach_cc}")
+            set(_goldbach_device_arch "${_cc_major}${_cc_minor}")
+            if(NOT _goldbach_arch STREQUAL _goldbach_device_arch)
+                message(FATAL_ERROR
+                    "Automatic CUDA architecture detection returned "
+                    "${_goldbach_arch}, but the installed GPU reports compute "
+                    "capability ${_goldbach_cc} (sm_${_goldbach_device_arch}).\n"
+                    "Building for ${_goldbach_arch} would run via PTX JIT on the "
+                    "wrong target.\n"
+                    "Pass the architecture explicitly: "
+                    "-DCMAKE_CUDA_ARCHITECTURES=${_goldbach_device_arch}")
+            endif()
+        endif()
+    endif()
+endif()
+
+message(STATUS "CUDA architecture: ${CMAKE_CUDA_ARCHITECTURES}")
 
 # --- Dependencies ---
 find_package(OpenMP REQUIRED)

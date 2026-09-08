@@ -96,7 +96,12 @@ void safe_log(Args... args) {
 // -------------------------------------------------------
 
 static const int THREADS_PER_BLOCK = 256;
-static const uint64_t VRAM_SAFETY_MARGIN_BYTES = 50ULL * 1024 * 1024;
+// Headroom for allocator fragmentation only. The CUDA context is NOT covered
+// by this: it is accounted for implicitly by comparing against the free memory
+// reported by cudaMemGetInfo after context creation, rather than against
+// totalGlobalMem. The old 50 MB margin was an order of magnitude smaller than
+// the ~505 MiB context it was implicitly being asked to cover.
+static const uint64_t FRAGMENTATION_MARGIN_BYTES = 64ULL * 1024 * 1024;
 
 
 struct Options {
@@ -341,19 +346,73 @@ void run_gpu_worker(
 // -------------------------------------------------------
 // Initialization & Hardware Check
 // -------------------------------------------------------
-void validate_hardware_and_limits(int use_gpus, uint64_t SEG_SIZE, uint64_t P_SMALL, uint64_t P_BATCH, size_t small_bytes) {
-    uint64_t verified_bytes = ((SEG_SIZE + 63) / 64) * sizeof(uint64_t);
-    uint64_t p_batch_bytes  = P_BATCH * sizeof(uint64_t);
-    uint64_t max_q_span   = 2 * SEG_SIZE + P_SMALL;
-    uint64_t max_odds     = (max_q_span + 1) / 2;
-    uint64_t seg_words    = (max_odds + 63) / 64;
-    uint64_t seg_bytes    = (seg_words + 1) * sizeof(uint64_t);
+// Bytes this configuration will allocate on each device, excluding the CUDA
+// context (which cudaMemGetInfo already excludes from `free`).
+static uint64_t device_alloc_bytes(uint64_t SEG_SIZE, uint64_t P_SMALL, uint64_t P_BATCH,
+                                   size_t small_bytes, uint64_t small_prime_count)
+{
+    uint64_t verified_bytes     = ((SEG_SIZE + 63) / 64) * sizeof(uint64_t);
+    uint64_t p_batch_bytes      = P_BATCH * sizeof(uint64_t);
+    uint64_t max_q_span         = 2 * SEG_SIZE + P_SMALL;
+    uint64_t max_odds           = (max_q_span + 1) / 2;
+    uint64_t seg_words          = (max_odds + 63) / 64;
+    uint64_t seg_bytes          = (seg_words + 1) * sizeof(uint64_t);
+    uint64_t small_primes_bytes = small_prime_count * sizeof(uint64_t);  // was unaccounted
+    return verified_bytes + p_batch_bytes + seg_bytes + small_bytes + small_primes_bytes
+         + sizeof(uint32_t);
+}
 
-    uint64_t total_required = verified_bytes + p_batch_bytes + seg_bytes + small_bytes + VRAM_SAFETY_MARGIN_BYTES;
+// Largest SEG_SIZE whose allocations stay within about a quarter of free VRAM.
+// The two SEG_SIZE-dependent buffers (d_verified, d_seg_bits) are each roughly
+// SEG_SIZE/8 bytes, so the variable part is ~SEG_SIZE/4.
+static uint64_t derive_seg_size(size_t free_bytes, uint64_t P_SMALL, uint64_t P_BATCH,
+                                size_t small_bytes, uint64_t small_prime_count)
+{
+    const uint64_t CAP = 200'000'000ULL;   // never exceed the documented default
+    const uint64_t FLOOR = 1'000'000ULL;
+
+    // P_SMALL widens the sieved q span by a constant, costing ~P_SMALL/16 bytes
+    // in d_seg_bits regardless of SEG_SIZE, so it belongs in the fixed term.
+    uint64_t fixed = P_BATCH * sizeof(uint64_t) + small_bytes
+                   + small_prime_count * sizeof(uint64_t)
+                   + P_SMALL / 16 + FRAGMENTATION_MARGIN_BYTES;
+    uint64_t budget = (uint64_t)free_bytes / 4;
+    if (budget <= fixed) return FLOOR;
+
+    uint64_t seg = 4 * (budget - fixed);
+    if (seg > CAP)   seg = CAP;
+    if (seg < FLOOR) seg = FLOOR;
+    if (seg & 1ULL)  seg--;               // SEG_SIZE must be even
+    return seg;
+}
+
+void validate_hardware_and_limits(int use_gpus, uint64_t SEG_SIZE, uint64_t P_SMALL,
+                                  uint64_t P_BATCH, size_t small_bytes,
+                                  uint64_t small_prime_count) {
+    uint64_t max_q_span = 2 * SEG_SIZE + P_SMALL;
+    uint64_t max_odds   = (max_q_span + 1) / 2;
+
+    uint64_t total_required =
+        device_alloc_bytes(SEG_SIZE, P_SMALL, P_BATCH, small_bytes, small_prime_count)
+        + FRAGMENTATION_MARGIN_BYTES;
 
     // Validate CUDA Grid Sizes
     uint64_t num_tiles = (max_odds + TILE_ODDS - 1) / TILE_ODDS;
     uint64_t blocks = (SEG_SIZE + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK;
+
+    // One-thread-per-even-number kernels (the small-n scalar Phase 1 path)
+    // index with blockIdx.x * blockDim.x, which is computed in 32 bits. Beyond
+    // 2^32 total threads that product wraps, some even numbers never get a
+    // thread, and they fall through to the single-threaded Phase 2 CPU
+    // fallback -- which presents as an apparent hang, not a crash.
+    if (SEG_SIZE > UINT32_MAX) {
+        std::cerr << "\n[!] ERROR: --seg-size=" << SEG_SIZE << " exceeds the 32-bit launch index limit.\n";
+        std::cerr << "    Maximum supported: " << (uint64_t)UINT32_MAX << "\n";
+        std::cerr << "    Above this, blockIdx.x * blockDim.x overflows in the scalar\n";
+        std::cerr << "    Phase 1 kernel and even numbers are silently skipped.\n";
+        std::cerr << "    Reduce --seg-size.\n";
+        std::exit(1);
+    }
 
     if (num_tiles > UINT32_MAX || blocks > UINT32_MAX) {
         std::cerr << "[!] ERROR: Segment size too large. Grid dimensions exceed uint32_t limit.\n";
@@ -362,16 +421,47 @@ void validate_hardware_and_limits(int use_gpus, uint64_t SEG_SIZE, uint64_t P_SM
         std::exit(1);
     }
 
-    // Validate VRAM for all selected devices
+    // Validate shared memory and VRAM for all selected devices
     for (int i = 0; i < use_gpus; i++) {
         cudaDeviceProp prop;
         CUDA_CHECK(cudaGetDeviceProperties(&prop, i));
-        
-        if (total_required > prop.totalGlobalMem) {
-            std::cerr << "\n[!] ERROR: GPU " << i << " (" << prop.name << ") has insufficient VRAM.\n";
-            std::cerr << "    Required: " << total_required / (1024*1024) << " MB\n";
-            std::cerr << "    Available: " << prop.totalGlobalMem / (1024*1024) << " MB\n";
-            std::cerr << "    Reduce SEG_SIZE or use a smaller LIMIT.\n";
+
+        // Shared memory: the tiled sieve asks for TILE_ODDS bytes per block.
+        // Fail here, naming both numbers, rather than at launch with the
+        // opaque "invalid argument". Never silently reduce TILE_ODDS -- that
+        // would change what is being measured without saying so.
+        size_t tile_shared = (size_t)TILE_ODDS * sizeof(unsigned char);
+        if (tile_shared > prop.sharedMemPerBlock) {
+            std::cerr << "\n[!] ERROR: GPU " << i << " (" << prop.name
+                      << ") cannot provide the shared memory this build requires.\n";
+            std::cerr << "    TILE_ODDS = " << (uint64_t)TILE_ODDS
+                      << " needs " << tile_shared << " bytes per block\n";
+            std::cerr << "    Device sharedMemPerBlock = " << prop.sharedMemPerBlock << " bytes\n";
+            std::cerr << "    Rebuild with -DTILE_ODDS=" << (prop.sharedMemPerBlock / 2)
+                      << " or smaller (a power of two).\n";
+            std::exit(1);
+        }
+
+        // Free memory, queried after cudaSetDevice so the context already
+        // exists and is therefore excluded from `free` -- this is what makes
+        // the estimate comparable to reality.
+        CUDA_CHECK(cudaSetDevice(i));
+        size_t free_bytes = 0, total_bytes = 0;
+        CUDA_CHECK(cudaMemGetInfo(&free_bytes, &total_bytes));
+
+        std::cout << "[vram] GPU " << i << " (" << prop.name << "): need "
+                  << total_required / (1024*1024) << " MB, free "
+                  << free_bytes / (1024*1024) << " MB of "
+                  << total_bytes / (1024*1024) << " MB total\n";
+
+        if (total_required > free_bytes) {
+            std::cerr << "\n[!] ERROR: GPU " << i << " (" << prop.name << ") has insufficient free VRAM.\n";
+            std::cerr << "    Required: " << total_required / (1024*1024)
+                      << " MB (including " << FRAGMENTATION_MARGIN_BYTES / (1024*1024)
+                      << " MB fragmentation margin)\n";
+            std::cerr << "    Free:     " << free_bytes / (1024*1024)
+                      << " MB of " << total_bytes / (1024*1024) << " MB total\n";
+            std::cerr << "    Reduce --seg-size or --batch-size, or free GPU memory.\n";
             std::exit(1);
         }
         std::cout << "[Hardware] GPU " << i << ": " << prop.name 
@@ -387,7 +477,7 @@ void print_usage(const char* prog) {
               << "Required:\n"
               << "  LIMIT            Max even integer to check\n\n"
               << "Optional:\n"
-              << "  --seg-size=N     Even integers per segment (default: 10,000,000)\n"
+              << "  --seg-size=N     Even integers per segment (default: derived from free VRAM)\n"
               << "  --p-small=N      GPU prime search bound (max: 4,000,000,000)\n"
               << "  --batch-size=N   Primes per GPU batch (default: 100000)\n"
               << "  --gpus=N         Number of GPUs to use (default: 1 | all: -1)\n"
@@ -403,6 +493,7 @@ int main(int argc, char** argv) {
     Options opt;
     uint64_t LIMIT = 0;
     uint64_t SEG_SIZE = 10'000'000ULL;
+    bool seg_size_explicit = false;
     uint64_t P_SMALL = 1'000'000ULL;
     uint64_t START = 4; // Default starting point
     int requested_gpus = 1;
@@ -416,7 +507,7 @@ int main(int argc, char** argv) {
         if (arg == "--progress") { opt.showProgress = true; continue; }
         if (arg.rfind("--batch-size=", 0) == 0) { opt.batchSize = std::stoull(arg.substr(13)); continue; }
         if (arg.rfind("--gpus=", 0) == 0) { requested_gpus = std::stoi(arg.substr(7)); continue; }
-        if (arg.rfind("--seg-size=", 0) == 0) { SEG_SIZE = std::stoull(arg.substr(11)); continue; }
+        if (arg.rfind("--seg-size=", 0) == 0) { SEG_SIZE = std::stoull(arg.substr(11)); seg_size_explicit = true; continue; }
         if (arg.rfind("--p-small=", 0) == 0) { P_SMALL = std::stoull(arg.substr(10)); continue; }
         if (arg.rfind("--start=", 0) == 0) { START = std::stoull(arg.substr(8)); continue; }
         if (arg.rfind("--primetest=", 0) == 0) {
@@ -437,7 +528,7 @@ int main(int argc, char** argv) {
 
     try {
         if (positional.size() >= 1) LIMIT = std::stoull(positional[0]);
-        if (positional.size() >= 2) SEG_SIZE = std::stoull(positional[1]);
+        if (positional.size() >= 2) { SEG_SIZE = std::stoull(positional[1]); seg_size_explicit = true; }
         if (positional.size() >= 3) P_SMALL = std::stoull(positional[2]);
     } catch (...) {
         std::cerr << "Error: Invalid numeric argument.\n"; return 1;
@@ -504,8 +595,23 @@ int main(int argc, char** argv) {
     uint64_t num_small_odds = (small_high - 3) / 2 + 1;
     size_t small_bytes = ((num_small_odds + 63) / 64) * sizeof(uint64_t);
 
-    // Fail-Fast Validations
-    validate_hardware_and_limits(use_gpus, SEG_SIZE, P_SMALL, opt.batchSize, small_bytes);
+    // Establish the primary device's context up front and read free memory
+    // from it. Doing this before the init timer keeps context-creation cost
+    // out of the reported initialization time.
+    CUDA_CHECK(cudaSetDevice(0));
+    size_t free_bytes0 = 0, total_bytes0 = 0;
+    CUDA_CHECK(cudaMemGetInfo(&free_bytes0, &total_bytes0));
+
+    // An explicit --seg-size always wins; otherwise scale to free VRAM.
+    // Uses an upper bound on the prime count (pi(x) < 1.3 x / ln x for x >= 17)
+    // because the real list is not built yet; it only affects a fixed term.
+    if (!seg_size_explicit) {
+        uint64_t pi_bound = (small_high < 17) ? 8
+                          : (uint64_t)(1.3 * (double)small_high / std::log((double)small_high));
+        SEG_SIZE = derive_seg_size(free_bytes0, P_SMALL, opt.batchSize, small_bytes, pi_bound);
+        std::cout << "[auto] --seg-size not given; chose " << SEG_SIZE
+                  << " from " << free_bytes0 / (1024*1024) << " MB free VRAM\n";
+    }
 
     // std::cout << "\nGoldbach Multi-GPU Verifier (Limit: " << LIMIT << ")\n";
     std::cout << "Building small primes bitset up to " << small_high << "...\n";
@@ -524,6 +630,12 @@ int main(int argc, char** argv) {
     for (uint64_t p : small_primes) {
         if (p <= P_SMALL) gpu_primes.push_back(p);
     }
+
+    // Fail-Fast Validations. Placed here so small_primes.size() is the real
+    // count rather than an estimate, but still ahead of the ~200 ms Phase 2
+    // prime table below.
+    validate_hardware_and_limits(use_gpus, SEG_SIZE, P_SMALL, opt.batchSize,
+                                 small_bytes, small_primes.size());
 
     std::cout << "Pre-generating CPU primes up to " << PHASE2_SIEVE_LIMIT << "...\n";
     std::vector<uint64_t> cpu_primes = generate_cpu_primes(PHASE2_SIEVE_LIMIT);
