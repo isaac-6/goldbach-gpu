@@ -121,6 +121,42 @@ int main(int argc, char** argv) {
     printf("  efficiency         %13.2Lf%%\n", 100.0L * needed / paid);
     printf("  waste factor       %13.2Lf x\n", paid / needed);
 
+
+    // Transposed layout: one lane owns 64 consecutive even numbers packed
+    // into a uint64_t, so it iterates until the slowest of its 64 is done.
+    // A warp of 32 such lanes covers 2048 numbers and pays the max over all
+    // of them.
+    printf("\ntransposed layout (64 numbers per lane, 2048 per warp)\n");
+    for (uint64_t G : {(uint64_t)64, (uint64_t)2048}) {
+        uint64_t groups = count / G;
+        if (!groups) continue;
+        long double sum_max = 0;
+        std::vector<uint32_t> gmax(groups, 0);
+        for (uint64_t g = 0; g < groups; g++) {
+            uint32_t m = 0;
+            for (uint64_t j = 0; j < G; j++) {
+                uint32_t v = idx[g * G + j];
+                if (v != UINT32_MAX && v > m) m = v;
+            }
+            gmax[g] = m;
+            sum_max += m + 1;
+        }
+        printf("  group of %-5llu  mean max %7.1Lf   p50 %5llu   p99 %5llu   p100 %5llu\n",
+               (unsigned long long)G, sum_max / groups,
+               (unsigned long long)percentile(gmax, 0.50),
+               (unsigned long long)percentile(gmax, 0.99),
+               (unsigned long long)percentile(gmax, 1.0));
+        if (G == 2048) {
+            long double transposed_paid = sum_max * 32.0L;
+            printf("\n  warp-iterations per even number\n");
+            printf("    transposed  %8.3Lf\n", transposed_paid / (long double)count);
+            printf("    current     %8.3Lf\n", paid / (long double)count);
+            printf("    speedup     %8.2Lf x\n", paid / transposed_paid);
+        }
+    }
+
+    
+
     printf("\nresolution rate by cut-off K (bulk pass over first K primes)\n");
     printf("  %8s %14s %14s\n", "K", "numbers done", "warps done");
     for (uint32_t K : {8u, 16u, 32u, 48u, 64u, 96u, 128u, 192u, 256u, 512u}) {
