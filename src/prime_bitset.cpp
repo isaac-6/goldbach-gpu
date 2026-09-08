@@ -46,8 +46,14 @@ PrimeBitset build_prime_bitset(uint64_t limit) {
     //
     // Each thread gets an exclusive slice of the output bitset.
     // Thread t owns odd numbers in [seg_low_t, seg_high_t].
-    // Since ranges don't overlap, no two threads ever write
-    // to the same memory location — zero contention, no atomics.
+    //
+    // Slices must be exclusive in WORDS, not just in bit index. The bitset is
+    // stored as uint64_t and clear() is a non-atomic read-modify-write, so if
+    // a slice boundary falls mid-word the two adjacent threads race on that
+    // word and lose each other's clears. A lost clear leaves the bit SET, i.e.
+    // reports a composite as prime -- silently, and in the direction that makes
+    // verification wrongly succeed. Rounding odds_per_thread up to a whole
+    // number of words is what makes the "no atomics" claim below actually true.
     //
     // We work in terms of odd numbers only:
     //   odd number k → bit index (k-3)/2
@@ -59,6 +65,14 @@ PrimeBitset build_prime_bitset(uint64_t limit) {
 
     // Each thread handles roughly total_odds/nthreads odd numbers
     uint64_t odds_per_thread = (total_odds + nthreads - 1) / nthreads;
+
+    // Round up to a whole number of 64-bit words so no word is shared.
+    // This only ever grows the slice, so coverage is preserved: nthreads *
+    // odds_per_thread >= total_odds still holds. Threads whose bit_start runs
+    // past total_odds get bit_end < bit_start from the clamp below and mark
+    // nothing, because `first` is derived from seg_low and so always exceeds
+    // seg_high. The buffer is protected by that same clamp, not by this value.
+    odds_per_thread = (odds_per_thread + 63) & ~63ULL;
 
     #pragma omp parallel for schedule(static) num_threads(nthreads)
     for (int t = 0; t < nthreads; t++) {
@@ -89,7 +103,7 @@ PrimeBitset build_prime_bitset(uint64_t limit) {
             // Mark odd multiples in our segment
             // Step by 2*p to stay on odd numbers
             for (uint64_t j = first; j <= seg_high; j += 2 * p)
-                bitset.clear(j);  // safe — only this thread touches this range
+                bitset.clear(j);  // safe — this thread owns these whole words
         }
     }
 
