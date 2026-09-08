@@ -81,7 +81,7 @@ __global__ void goldbach_phase1_kernel(
     const uint64_t* __restrict__ p_batch, uint64_t p_batch_size,
     uint64_t* d_verified)
 {
-    uint64_t tid = blockIdx.x * blockDim.x + threadIdx.x;
+    uint64_t tid = (uint64_t)blockIdx.x * blockDim.x + threadIdx.x;
     if (tid >= seg_even_count) return;
     // Early return monotonic safety. This read is not atomic while other lanes
     // atomicOr the same word, but bits only ever go 0 -> 1, so a stale read
@@ -134,7 +134,7 @@ __global__ void goldbach_phase1_transposed_kernel(
     const uint64_t* __restrict__ p_batch, uint64_t p_batch_size,
     uint64_t* __restrict__ d_verified)
 {
-    uint64_t t           = blockIdx.x * blockDim.x + threadIdx.x;
+    uint64_t t           = (uint64_t)blockIdx.x * blockDim.x + threadIdx.x;
     uint64_t group_start = t * 64;                 // index of this thread's first even number
     if (group_start >= seg_even_count) return;
 

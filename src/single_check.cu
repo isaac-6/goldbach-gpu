@@ -100,7 +100,7 @@ __global__ void goldbach_single_kernel(
     uint64_t*       __restrict__ d_p_out,
     uint64_t*       __restrict__ d_q_out)
 {
-    uint64_t tid = blockIdx.x * blockDim.x + threadIdx.x;
+    uint64_t tid = (uint64_t)blockIdx.x * blockDim.x + threadIdx.x;
     if (tid >= prime_count) return;
 
     // Coherent early exit if another thread already found a partition

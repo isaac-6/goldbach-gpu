@@ -140,7 +140,7 @@ __global__ void count_unverified_kernel(
     uint64_t seg_even_count,
     uint32_t* __restrict__ d_unverified_count)
 {
-    uint64_t w = blockIdx.x * blockDim.x + threadIdx.x;
+    uint64_t w = (uint64_t)blockIdx.x * blockDim.x + threadIdx.x;
     uint64_t verified_words = (seg_even_count + 63) / 64;
     if (w >= verified_words) return;
 
@@ -400,31 +400,29 @@ void validate_hardware_and_limits(int use_gpus, uint64_t SEG_SIZE, uint64_t P_SM
     uint64_t num_tiles = (max_odds + TILE_ODDS - 1) / TILE_ODDS;
     uint64_t blocks = (SEG_SIZE + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK;
 
-    // One-thread-per-even-number kernels (the small-n scalar Phase 1 path)
-    // index with blockIdx.x * blockDim.x, which is computed in 32 bits. Beyond
-    // 2^32 total threads that product wraps, some even numbers never get a
-    // thread, and they fall through to the single-threaded Phase 2 CPU
-    // fallback -- which presents as an apparent hang, not a crash.
-    if (SEG_SIZE > UINT32_MAX) {
-        std::cerr << "\n[!] ERROR: --seg-size=" << SEG_SIZE << " exceeds the 32-bit launch index limit.\n";
-        std::cerr << "    Maximum supported: " << (uint64_t)UINT32_MAX << "\n";
-        std::cerr << "    Above this, blockIdx.x * blockDim.x overflows in the scalar\n";
-        std::cerr << "    Phase 1 kernel and even numbers are silently skipped.\n";
-        std::cerr << "    Reduce --seg-size.\n";
-        std::exit(1);
-    }
-
-    if (num_tiles > UINT32_MAX || blocks > UINT32_MAX) {
-        std::cerr << "[!] ERROR: Segment size too large. Grid dimensions exceed uint32_t limit.\n";
-        std::cerr << "    num_tiles: " << num_tiles << " | blocks: " << blocks << "\n";
-        std::cerr << "    Reduce SEG_SIZE or P_SMALL.\n";
-        std::exit(1);
-    }
+    // Grid dimensions are validated per device against maxGridSize[0] below.
+    // Thread indices are computed as (uint64_t)blockIdx.x * blockDim.x, so the
+    // old 2^32 total-thread ceiling no longer applies; the binding limits are
+    // the device's grid extent and free memory.
 
     // Validate shared memory and VRAM for all selected devices
     for (int i = 0; i < use_gpus; i++) {
         cudaDeviceProp prop;
         CUDA_CHECK(cudaGetDeviceProperties(&prop, i));
+
+        // Grid extent: the widest launch is the scalar Phase 1 path, one
+        // thread per even number. maxGridSize[0] is the real ceiling (2^31-1
+        // on current hardware), not UINT32_MAX.
+        if (blocks > (uint64_t)prop.maxGridSize[0] || num_tiles > (uint64_t)prop.maxGridSize[0]) {
+            std::cerr << "\n[!] ERROR: GPU " << i << " (" << prop.name
+                      << "): segment size exceeds the device grid limit.\n";
+            std::cerr << "    Phase 1 blocks needed: " << blocks
+                      << " | sieve tiles needed: " << num_tiles << "\n";
+            std::cerr << "    Device maxGridSize[0]: " << prop.maxGridSize[0] << "\n";
+            std::cerr << "    Maximum --seg-size on this device: "
+                      << (uint64_t)prop.maxGridSize[0] * THREADS_PER_BLOCK << "\n";
+            std::exit(1);
+        }
 
         // Shared memory: the tiled sieve asks for TILE_ODDS bytes per block.
         // Fail here, naming both numbers, rather than at launch with the

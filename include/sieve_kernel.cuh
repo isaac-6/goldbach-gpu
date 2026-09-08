@@ -139,7 +139,7 @@ __global__ void large_prime_sieve_kernel(
     uint64_t        large_prime_count,
     uint64_t*       d_seg_bits)
 {
-    uint64_t idx = blockIdx.x * blockDim.x + threadIdx.x;
+    uint64_t idx = (uint64_t)blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= large_prime_count) return;
 
     uint64_t p = d_large_primes[idx];
