@@ -80,7 +80,13 @@ target_link_libraries(test_primality PRIVATE goldbach_lib)
 set_target_properties(test_primality PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 
-# 7. analyse pmin
+# 7. Phase 1 Differential Test
+add_executable(test_phase1 src/test_phase1.cu)
+target_link_libraries(test_phase1 PRIVATE goldbach_lib)
+set_target_properties(test_phase1 PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+
+# 8. analyse pmin
 add_executable(analyze_pmin src/analyze_pmin.cpp)
 target_link_libraries(analyze_pmin PRIVATE goldbach_lib)
 set_target_properties(analyze_pmin PROPERTIES

@@ -62,6 +62,7 @@
 #include <stdexcept>
 #include "prime_bitset.hpp"
 #include "sieve_kernel.cuh"
+#include "phase1_kernel.cuh"
 #include "primality.cuh"
 
 using namespace goldbach;
@@ -97,10 +98,6 @@ void safe_log(Args... args) {
 static const int THREADS_PER_BLOCK = 256;
 static const uint64_t VRAM_SAFETY_MARGIN_BYTES = 50ULL * 1024 * 1024;
 
-enum class PrimeTest {
-    MillerRabin,
-    BPSW
-};
 
 struct Options {
     bool async = false;
@@ -121,104 +118,37 @@ struct Options {
         }                                                                   \
     } while (0)
 
-// Passed to GPU once per device via cudaMemcpyToSymbol
-__constant__ PrimeTest g_device_prime_test;
 
-// -------------------------------------------------------
-// GPU Kernel Device Functions
-// -------------------------------------------------------
-
-
-__device__ bool is_prime_q(
-    uint64_t q, const uint64_t* __restrict__ d_small, uint64_t small_high,
-    const uint64_t* __restrict__ d_seg_bits, uint64_t q_low, uint64_t q_high)
-{
-    if (q < 2)  return false;
-    if (q == 2) return true;
-    if ((q & 1) == 0) return false;
-
-    if (q <= small_high) {
-        uint64_t bit_pos  = (q - 3) / 2;
-        return (d_small[bit_pos / 64] >> (bit_pos % 64)) & 1ULL;
-    }
-
-    if (q >= q_low && q <= q_high) {
-        uint64_t bit_pos  = (q - q_low) / 2;
-        return (d_seg_bits[bit_pos / 64] >> (bit_pos % 64)) & 1ULL;
-    }
-
-    if (g_device_prime_test == PrimeTest::BPSW)
-        return gpu_is_prime_bpsw(q);
-    return gpu_is_prime_miller_rabin(q);
-}
 
 // -------------------------------------------------------
 // GPU Kernels
 // -------------------------------------------------------
+// One thread per word of the d_verified bitset; unverified = 64 - popcount.
+//
+// The final word's bits past seg_even_count are masked to 1 here rather than
+// assumed set. The transposed kernel does leave them set, but the scalar
+// kernel sets bits one at a time and leaves them clear -- an unguarded
+// popcount would then report those as unverified and trigger a spurious
+// Phase 2 fallback on every scalar-path segment.
 __global__ void count_unverified_kernel(
-    const uint8_t* __restrict__ d_verified,
+    const uint64_t* __restrict__ d_verified,
     uint64_t seg_even_count,
     uint32_t* __restrict__ d_unverified_count)
 {
-    uint64_t tid = blockIdx.x * blockDim.x + threadIdx.x;
-    if (tid >= seg_even_count) return;
+    uint64_t w = blockIdx.x * blockDim.x + threadIdx.x;
+    uint64_t verified_words = (seg_even_count + 63) / 64;
+    if (w >= verified_words) return;
 
-    if (d_verified[tid] == 0) {
-        atomicAdd(d_unverified_count, 1u);
-    }
+    uint64_t word = d_verified[w];
+
+    uint64_t valid = seg_even_count - w * 64;   // >= 1, since w < verified_words
+    if (valid < 64) word |= (~0ULL << valid);
+
+    uint32_t unverified = 64u - (uint32_t)__popcll(word);
+    if (unverified) atomicAdd(d_unverified_count, unverified);
 }
 
 // -------------------------------------------------------
-// Phase 1 Kernel: GPU Goldbach Verification
-// -------------------------------------------------------
-// One thread per even number in segment.
-//
-// CRITICAL INVARIANTS:
-// 1. p_batch MUST be sorted in ascending order (allows early termination)
-// 2. d_verified[tid] is monotonic: once set to 1, stays 1 forever
-// 3. Kernel may be called multiple times with different p_batch slices
-// 4. Early return on d_verified[tid] == 1 is SAFE because:
-//    - We only need ONE valid Goldbach partition (p + q = n)
-//    - Finding one partition proves n satisfies the conjecture
-//    - Additional partitions are unnecessary
-// 5. p > n/2 termination is SAFE because:
-//    - If p > n/2, then q = n - p < n/2 < p
-//    - This would be a duplicate of the partition (q, p)
-//    - All unique partitions have p <= n/2
-//
-// THREAD SAFETY:
-// - Multiple threads may write d_verified[tid] = 1 concurrently (idempotent)
-// - No thread ever writes d_verified[tid] = 0 after initialization
-// - No race conditions or data corruption possible
-//
-// OVERFLOW SAFETY:
-// - p > n/2 uses division (safe for all uint64_t values)
-// - n - p cannot underflow because p <= n/2 < n
-// -------------------------------------------------------
-__global__ void goldbach_phase1_kernel(
-    const uint64_t* __restrict__ d_small, uint64_t small_high,
-    const uint64_t* __restrict__ d_seg_bits, uint64_t q_low, uint64_t q_high,
-    uint64_t seg_even_start, uint64_t seg_even_count,
-    const uint64_t* __restrict__ p_batch, uint64_t p_batch_size,
-    uint8_t* __restrict__ d_verified)
-{
-    uint64_t tid = blockIdx.x * blockDim.x + threadIdx.x;
-    if (tid >= seg_even_count) return;
-    if (d_verified[tid]) return; // Early return monotonic safety
-
-    uint64_t n = seg_even_start + tid * 2;
-
-    for (uint64_t i = 0; i < p_batch_size; i++) {
-        uint64_t p = p_batch[i];
-        if (p > n / 2) break; 
-        uint64_t q = n - p;
-
-        if (is_prime_q(q, d_small, small_high, d_seg_bits, q_low, q_high)) {
-            d_verified[tid] = 1;
-            return;
-        }
-    }
-}
 
 // -------------------------------------------------------
 // Phase 2 (CPU Fallback) logic
@@ -290,15 +220,20 @@ void run_gpu_worker(
         uint64_t max_q_span = 2 * SEG_SIZE + P_SMALL;
         uint64_t max_odds = (max_q_span + 1) / 2;
         uint64_t seg_words = (max_odds + 63) / 64;
-        size_t seg_bytes = seg_words * sizeof(uint64_t);
+        // +1 padding word: the transposed Phase 1 kernel reads one word past
+        // the word holding i_base.
+        size_t seg_bytes = (seg_words + 1) * sizeof(uint64_t);
 
         uint64_t* d_seg_bits = nullptr;
-        uint8_t*  d_verified = nullptr;
+        uint64_t* d_verified = nullptr;   // bitset: 1 bit per even number
         uint64_t* d_p_batch  = nullptr;
         uint32_t* d_unverified_count = nullptr;
 
         CUDA_CHECK(cudaMalloc(&d_seg_bits, seg_bytes));
-        CUDA_CHECK(cudaMalloc(&d_verified, SEG_SIZE));
+        // d_verified holds one bit per even number; SEG_SIZE is the largest
+        // seg_even_count any segment can have.
+        uint64_t max_verified_words = (SEG_SIZE + 63) / 64;
+        CUDA_CHECK(cudaMalloc(&d_verified, max_verified_words * sizeof(uint64_t)));
         CUDA_CHECK(cudaMalloc(&d_p_batch, P_BATCH * sizeof(uint64_t)));
         CUDA_CHECK(cudaMalloc(&d_unverified_count, sizeof(uint32_t)));
 
@@ -327,17 +262,25 @@ void run_gpu_worker(
                 q_low, q_high, d_small_primes, small_prime_count, d_seg_bits);
             CUDA_CHECK(cudaGetLastError());
 
-            // B. Phase 1 Verification Batches
-            CUDA_CHECK(cudaMemsetAsync(d_verified, 0, seg_even_count, stream));
-            uint32_t blocks = (uint32_t)((seg_even_count + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK);
+            // Zero the word just past this segment's bits, so the transposed
+            // kernel's one-word overread sees 0 rather than the previous
+            // segment's leftovers.
+            uint64_t cur_seg_words = (num_odds + 63) / 64;
+            CUDA_CHECK(cudaMemsetAsync(d_seg_bits + cur_seg_words, 0,
+                                       sizeof(uint64_t), stream));
 
+            // B. Phase 1 Verification Batches
+            uint64_t verified_words = (seg_even_count + 63) / 64;
+            CUDA_CHECK(cudaMemsetAsync(d_verified, 0,
+                                       verified_words * sizeof(uint64_t), stream));
             for (uint64_t bi = 0; bi < gpu_primes.size(); bi += P_BATCH) {
                 uint64_t bsize = std::min(P_BATCH, (uint64_t)gpu_primes.size() - bi);
                 CUDA_CHECK(cudaMemcpyAsync(d_p_batch, gpu_primes.data() + bi, bsize * sizeof(uint64_t), cudaMemcpyHostToDevice, stream));
 
-                goldbach_phase1_kernel<<<blocks, THREADS_PER_BLOCK, 0, stream>>>(
+                launch_goldbach_phase1(
                     d_small, small_high, d_seg_bits, q_low, q_high,
-                    seg_start, seg_even_count, d_p_batch, bsize, d_verified);
+                    seg_start, seg_even_count, d_p_batch, bsize, d_verified,
+                    P_SMALL, THREADS_PER_BLOCK, stream);
                 CUDA_CHECK(cudaGetLastError());
             }
 
@@ -345,18 +288,21 @@ void run_gpu_worker(
             uint32_t unverified_count = 0;
             CUDA_CHECK(cudaMemsetAsync(d_unverified_count, 0, sizeof(uint32_t), stream));
 
-            uint32_t count_blocks = (uint32_t)((seg_even_count + 255) / 256);
+            uint32_t count_blocks = (uint32_t)((verified_words + 255) / 256);
             count_unverified_kernel<<<count_blocks, 256, 0, stream>>>(d_verified, seg_even_count, d_unverified_count);
             CUDA_CHECK(cudaMemcpyAsync(&unverified_count, d_unverified_count, sizeof(uint32_t), cudaMemcpyDeviceToHost, stream));
             CUDA_CHECK(cudaStreamSynchronize(stream));
 
             // D. CPU Phase 2 Processing
             if (unverified_count > 0) {
-                std::vector<uint8_t> verified(seg_even_count);
-                CUDA_CHECK(cudaMemcpy(verified.data(), d_verified, seg_even_count, cudaMemcpyDeviceToHost));
+                std::vector<uint64_t> verified(verified_words);
+                CUDA_CHECK(cudaMemcpy(verified.data(), d_verified,
+                                      verified_words * sizeof(uint64_t), cudaMemcpyDeviceToHost));
 
+                // Bounded by seg_even_count, so the final word's tail bits are
+                // never examined regardless of how they were left.
                 for (uint64_t i = 0; i < seg_even_count; i++) {
-                    if (!verified[i]) {
+                    if (!((verified[i >> 6] >> (i & 63)) & 1ULL)) {
                         uint64_t n = seg_start + i * 2;
                         g_total_phase2_count.fetch_add(1, std::memory_order_relaxed);
                         // safe_log("[GPU ", device_id, "] Phase 2 fallback for n = ", n, "...");
@@ -391,12 +337,12 @@ void run_gpu_worker(
 // Initialization & Hardware Check
 // -------------------------------------------------------
 void validate_hardware_and_limits(int use_gpus, uint64_t SEG_SIZE, uint64_t P_SMALL, uint64_t P_BATCH, size_t small_bytes) {
-    uint64_t verified_bytes = SEG_SIZE;
+    uint64_t verified_bytes = ((SEG_SIZE + 63) / 64) * sizeof(uint64_t);
     uint64_t p_batch_bytes  = P_BATCH * sizeof(uint64_t);
     uint64_t max_q_span   = 2 * SEG_SIZE + P_SMALL;
     uint64_t max_odds     = (max_q_span + 1) / 2;
     uint64_t seg_words    = (max_odds + 63) / 64;
-    uint64_t seg_bytes    = seg_words * sizeof(uint64_t);
+    uint64_t seg_bytes    = (seg_words + 1) * sizeof(uint64_t);
 
     uint64_t total_required = verified_bytes + p_batch_bytes + seg_bytes + small_bytes + VRAM_SAFETY_MARGIN_BYTES;
 

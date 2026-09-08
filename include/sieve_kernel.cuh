@@ -5,7 +5,20 @@
 #pragma once
 #include <cstdint>
 
-static const uint64_t TILE_ODDS = 16384;
+// Odd numbers per sieve tile. Shared memory per block is TILE_ODDS bytes
+// (one byte per odd number), so this trades occupancy against the fixed
+// per-tile cost of looping over every small prime.
+//
+// Overridable at compile time: -DTILE_ODDS=<value>. Note a block cannot
+// exceed the device's default 48 KB shared-memory cap unless
+// cudaFuncSetAttribute raises it, so values above 49152 will fail to launch.
+// 32768 is the largest power of two that fits under that cap.
+//
+// Chosen by measurement at 1e11 (RTX 5090): 4096 -> 4.019s, 8192 -> 2.201s,
+// 16384 -> 1.379s, 32768 -> 1.284s.
+#ifndef TILE_ODDS
+#define TILE_ODDS 32768
+#endif
 
 // Overflow-safe tiled sieve
 __global__ void tiled_sieve_segment_kernel(
