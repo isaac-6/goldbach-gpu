@@ -93,3 +93,118 @@ __global__ void goldbach_phase1_kernel(
         }
     }
 }
+
+// -------------------------------------------------------
+// Phase 1 Kernel, transposed: 64 even numbers per thread.
+// -------------------------------------------------------
+// For 64 consecutive even numbers n_j = n_base + 2j (j = 0..63) and a fixed
+// odd prime p, the complements q_j = n_base - p + 2j are 64 consecutive odd
+// numbers -- exactly a 64-bit window of the segment bitset. One shifted load
+// and one OR resolves all 64 numbers against that prime.
+//
+// Indexing: bit i of d_seg_bits is the odd number q_low + 2i, so for
+// q_base = n_base - p the window starts at bit i_base = (q_base - q_low)/2.
+//
+// WHY THE SEGMENT BITSET ALONE SUFFICES (no is_prime_q, no Miller-Rabin):
+// every q = n - p with n in the segment and p <= P_SMALL lies within
+// [q_low, q_high], which the sieve has already resolved exactly. The scalar
+// kernel above keeps is_prime_q for the small-n fallback path.
+//
+// PRECONDITION (enforced by launch_goldbach_phase1): the caller only routes
+// segments with seg_even_start > 2*P_SMALL + 128 here. That gives two things:
+//   - n_base - p >= q_low for every p in the batch, so i_base never underflows
+//   - p <= P_SMALL < n/2 always, so the scalar kernel's "p > n/2" break can
+//     never trigger and the two kernels agree exactly on every n
+//
+// READS ONE WORD PAST i_base's word: d_seg_bits must be allocated with one
+// padding word beyond the segment's own words.
+// -------------------------------------------------------
+__global__ void goldbach_phase1_transposed_kernel(
+    const uint64_t* __restrict__ d_seg_bits, uint64_t q_low,
+    uint64_t seg_even_start, uint64_t seg_even_count,
+    const uint64_t* __restrict__ p_batch, uint64_t p_batch_size,
+    uint8_t* __restrict__ d_verified)
+{
+    uint64_t t           = blockIdx.x * blockDim.x + threadIdx.x;
+    uint64_t group_start = t * 64;                 // index of this thread's first even number
+    if (group_start >= seg_even_count) return;
+
+    uint64_t valid = seg_even_count - group_start;
+    if (valid > 64) valid = 64;
+
+    uint64_t n_base = seg_even_start + 2 * group_start;
+
+    // Tail masking: on the final partial group the high bits cover numbers past
+    // the range. Seed them to 1 so verified_word can still reach ~0ULL and take
+    // the early exit; they are never written back.
+    uint64_t verified_word = (valid == 64) ? 0ULL : (~0ULL << valid);
+    for (uint64_t j = 0; j < valid; j++)
+        if (d_verified[group_start + j]) verified_word |= (1ULL << j);
+
+    for (uint64_t i = 0; i < p_batch_size && verified_word != ~0ULL; i++) {
+        uint64_t p = p_batch[i];
+        // p = 2 gives an even q, which the odd-only segment bitset cannot
+        // represent. q even is prime only at q = 2 (n = 4), which lives in the
+        // small-n range and is handled by the scalar kernel.
+        if (p == 2) continue;
+
+        uint64_t i_base   = (n_base - p - q_low) >> 1;
+        uint64_t word_idx = i_base >> 6;
+        uint32_t shift    = (uint32_t)(i_base & 63);
+
+        uint64_t window;
+        if (shift == 0) {
+            // Shifting a 64-bit value by 64 is undefined behaviour, not zero.
+            window = d_seg_bits[word_idx];
+        } else {
+            window = (d_seg_bits[word_idx] >> shift)
+                   | (d_seg_bits[word_idx + 1] << (64 - shift));
+        }
+        verified_word |= window;
+    }
+
+    for (uint64_t j = 0; j < valid; j++)
+        if ((verified_word >> j) & 1ULL) d_verified[group_start + j] = 1;
+}
+
+// -------------------------------------------------------
+// Host-side dispatch between the two Phase 1 kernels.
+// -------------------------------------------------------
+// The transposed kernel requires n_base - p >= q_low for every p in the batch.
+// When seg_even_start <= P_SMALL the segment's q_low is clamped to 3 and that
+// fails, so those segments take the scalar kernel.
+//
+// The threshold is 2*P_SMALL + 128, not P_SMALL + 128: above it every p is
+// also < n/2, so the scalar kernel's "p > n/2" break is unreachable and both
+// kernels compute identically. (Between P_SMALL and 2*P_SMALL the transposed
+// kernel would still be correct -- a partition with p > q is still a partition
+// -- but it would verify numbers the scalar kernel declines to, and the two
+// paths would no longer agree.)
+//
+// NOTE: this deliberately does not test seg_even_start against
+// q_low + P_SMALL + 128. Since q_low is itself seg_start - P_SMALL, that
+// comparison reduces to seg_start < seg_start + 128 and is true for every
+// segment, which would route all work to the scalar kernel.
+// -------------------------------------------------------
+static inline void launch_goldbach_phase1(
+    const uint64_t* d_small, uint64_t small_high,
+    const uint64_t* d_seg_bits, uint64_t q_low, uint64_t q_high,
+    uint64_t seg_even_start, uint64_t seg_even_count,
+    const uint64_t* d_p_batch, uint64_t p_batch_size,
+    uint8_t* d_verified, uint64_t p_small,
+    int threads_per_block, cudaStream_t stream)
+{
+    if (seg_even_start > 2 * p_small + 128) {
+        uint64_t groups = (seg_even_count + 63) / 64;
+        uint32_t blocks = (uint32_t)((groups + threads_per_block - 1) / threads_per_block);
+        goldbach_phase1_transposed_kernel<<<blocks, threads_per_block, 0, stream>>>(
+            d_seg_bits, q_low, seg_even_start, seg_even_count,
+            d_p_batch, p_batch_size, d_verified);
+    } else {
+        uint32_t blocks =
+            (uint32_t)((seg_even_count + threads_per_block - 1) / threads_per_block);
+        goldbach_phase1_kernel<<<blocks, threads_per_block, 0, stream>>>(
+            d_small, small_high, d_seg_bits, q_low, q_high,
+            seg_even_start, seg_even_count, d_p_batch, p_batch_size, d_verified);
+    }
+}

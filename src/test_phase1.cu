@@ -120,7 +120,8 @@ static uint64_t check_range(uint64_t n_low, uint64_t n_high, uint64_t p_small,
 
     CK(cudaMalloc(&d_small, small_bytes));
     CK(cudaMalloc(&d_small_primes, small_primes.size() * sizeof(uint64_t)));
-    CK(cudaMalloc(&d_seg_bits, seg_words * sizeof(uint64_t)));
+    // +1 padding word for the transposed kernel's one-word overread.
+    CK(cudaMalloc(&d_seg_bits, (seg_words + 1) * sizeof(uint64_t)));
     CK(cudaMalloc(&d_p_batch, std::min(P_BATCH, (uint64_t)gpu_primes.size()) * sizeof(uint64_t)));
     CK(cudaMalloc(&d_verified, even_count));
 
@@ -128,6 +129,7 @@ static uint64_t check_range(uint64_t n_low, uint64_t n_high, uint64_t p_small,
     CK(cudaMemcpy(d_small_primes, small_primes.data(),
                   small_primes.size() * sizeof(uint64_t), cudaMemcpyHostToDevice));
     CK(cudaMemset(d_verified, 0, even_count));
+    CK(cudaMemset(d_seg_bits, 0, (seg_words + 1) * sizeof(uint64_t)));
 
     PrimeTest primeTest = PrimeTest::BPSW;
     CK(cudaMemcpyToSymbol(g_device_prime_test, &primeTest, sizeof(PrimeTest)));
@@ -148,7 +150,6 @@ static uint64_t check_range(uint64_t n_low, uint64_t n_high, uint64_t p_small,
     // list is included last, which is the plain end-to-end case.
     uint64_t prefixes[] = {1, 2, 3, 5, 10, 25, 100, 1000, (uint64_t)gpu_primes.size()};
 
-    uint32_t blocks = (uint32_t)((even_count + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK);
     uint64_t mismatches = 0, shown = 0;
     std::vector<uint8_t> gpu_verified(even_count);
 
@@ -161,9 +162,10 @@ static uint64_t check_range(uint64_t n_low, uint64_t n_high, uint64_t p_small,
             CK(cudaMemcpy(d_p_batch, gpu_primes.data() + bi,
                           bsize * sizeof(uint64_t), cudaMemcpyHostToDevice));
 
-            goldbach_phase1_kernel<<<blocks, THREADS_PER_BLOCK>>>(
+            launch_goldbach_phase1(
                 d_small, small_high, d_seg_bits, q_low, q_high,
-                n_low, even_count, d_p_batch, bsize, d_verified);
+                n_low, even_count, d_p_batch, bsize, d_verified,
+                p_small, THREADS_PER_BLOCK, 0);
             CK(cudaGetLastError());
         }
         CK(cudaDeviceSynchronize());

@@ -208,7 +208,9 @@ void run_gpu_worker(
         uint64_t max_q_span = 2 * SEG_SIZE + P_SMALL;
         uint64_t max_odds = (max_q_span + 1) / 2;
         uint64_t seg_words = (max_odds + 63) / 64;
-        size_t seg_bytes = seg_words * sizeof(uint64_t);
+        // +1 padding word: the transposed Phase 1 kernel reads one word past
+        // the word holding i_base.
+        size_t seg_bytes = (seg_words + 1) * sizeof(uint64_t);
 
         uint64_t* d_seg_bits = nullptr;
         uint8_t*  d_verified = nullptr;
@@ -245,17 +247,23 @@ void run_gpu_worker(
                 q_low, q_high, d_small_primes, small_prime_count, d_seg_bits);
             CUDA_CHECK(cudaGetLastError());
 
+            // Zero the word just past this segment's bits, so the transposed
+            // kernel's one-word overread sees 0 rather than the previous
+            // segment's leftovers.
+            uint64_t cur_seg_words = (num_odds + 63) / 64;
+            CUDA_CHECK(cudaMemsetAsync(d_seg_bits + cur_seg_words, 0,
+                                       sizeof(uint64_t), stream));
+
             // B. Phase 1 Verification Batches
             CUDA_CHECK(cudaMemsetAsync(d_verified, 0, seg_even_count, stream));
-            uint32_t blocks = (uint32_t)((seg_even_count + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK);
-
             for (uint64_t bi = 0; bi < gpu_primes.size(); bi += P_BATCH) {
                 uint64_t bsize = std::min(P_BATCH, (uint64_t)gpu_primes.size() - bi);
                 CUDA_CHECK(cudaMemcpyAsync(d_p_batch, gpu_primes.data() + bi, bsize * sizeof(uint64_t), cudaMemcpyHostToDevice, stream));
 
-                goldbach_phase1_kernel<<<blocks, THREADS_PER_BLOCK, 0, stream>>>(
+                launch_goldbach_phase1(
                     d_small, small_high, d_seg_bits, q_low, q_high,
-                    seg_start, seg_even_count, d_p_batch, bsize, d_verified);
+                    seg_start, seg_even_count, d_p_batch, bsize, d_verified,
+                    P_SMALL, THREADS_PER_BLOCK, stream);
                 CUDA_CHECK(cudaGetLastError());
             }
 
@@ -314,7 +322,7 @@ void validate_hardware_and_limits(int use_gpus, uint64_t SEG_SIZE, uint64_t P_SM
     uint64_t max_q_span   = 2 * SEG_SIZE + P_SMALL;
     uint64_t max_odds     = (max_q_span + 1) / 2;
     uint64_t seg_words    = (max_odds + 63) / 64;
-    uint64_t seg_bytes    = seg_words * sizeof(uint64_t);
+    uint64_t seg_bytes    = (seg_words + 1) * sizeof(uint64_t);
 
     uint64_t total_required = verified_bytes + p_batch_bytes + seg_bytes + small_bytes + VRAM_SAFETY_MARGIN_BYTES;
 
