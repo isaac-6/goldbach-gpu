@@ -135,11 +135,10 @@ static uint64_t check_range(uint64_t n_low, uint64_t n_high, uint64_t p_small,
     PrimeTest primeTest = PrimeTest::BPSW;
     CK(cudaMemcpyToSymbol(g_device_prime_test, &primeTest, sizeof(PrimeTest)));
 
-    uint32_t num_tiles = (uint32_t)((num_odds + TILE_ODDS - 1) / TILE_ODDS);
-    size_t shmem = TILE_ODDS * sizeof(unsigned char);
-
-    tiled_sieve_segment_kernel<<<num_tiles, THREADS_PER_BLOCK, shmem>>>(
-        q_low, q_high, d_small_primes, small_primes.size(), d_seg_bits);
+    uint64_t sc = tile_sieve_small_prime_count(small_primes.data(), small_primes.size());
+    launch_segment_sieve(q_low, q_high, d_small_primes,
+                         sc, small_primes.size() - sc, d_seg_bits,
+                         THREADS_PER_BLOCK, 0);
     CK(cudaGetLastError());
 
     // -------- CPU side --------

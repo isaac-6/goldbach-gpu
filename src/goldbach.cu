@@ -213,6 +213,12 @@ void run_gpu_worker(
         CUDA_CHECK(cudaMemcpyAsync(d_small, small_bitset.data(), small_bytes, cudaMemcpyHostToDevice, stream));
 
         uint64_t small_prime_count = small_primes.size();
+        // Split the prime list at TILE_ODDS once: primes below it are worth a
+        // per-tile scan, the rest are not (see large_prime_sieve_kernel).
+        uint64_t sieve_small_count =
+            tile_sieve_small_prime_count(small_primes.data(), small_prime_count);
+        uint64_t sieve_large_count = small_prime_count - sieve_small_count;
+
         uint64_t* d_small_primes = nullptr;
         CUDA_CHECK(cudaMalloc(&d_small_primes, small_prime_count * sizeof(uint64_t)));
         CUDA_CHECK(cudaMemcpyAsync(d_small_primes, small_primes.data(), small_prime_count * sizeof(uint64_t), cudaMemcpyHostToDevice, stream));
@@ -254,12 +260,11 @@ void run_gpu_worker(
             if ((q_high & 1) == 0) q_high++;
 
             uint64_t num_odds = (q_high - q_low) / 2 + 1;
-            uint32_t num_tiles = (uint32_t)((num_odds + TILE_ODDS - 1) / TILE_ODDS);
-            size_t shared_bytes = TILE_ODDS * sizeof(unsigned char);
 
             // A. Sieve Segment
-            tiled_sieve_segment_kernel<<<num_tiles, THREADS_PER_BLOCK, shared_bytes, stream>>>(
-                q_low, q_high, d_small_primes, small_prime_count, d_seg_bits);
+            launch_segment_sieve(q_low, q_high, d_small_primes,
+                                 sieve_small_count, sieve_large_count,
+                                 d_seg_bits, THREADS_PER_BLOCK, stream);
             CUDA_CHECK(cudaGetLastError());
 
             // Zero the word just past this segment's bits, so the transposed
