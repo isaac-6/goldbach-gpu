@@ -530,7 +530,20 @@ int main(int argc, char** argv) {
 
     auto t1 = now();
     std::cout << "Initialization completed in " 
-              << std::chrono::duration<double, std::milli>(t1 - t0).count() << " ms.\n\n";
+              << std::chrono::duration<double, std::milli>(t1 - t0).count() << " ms.\n";
+
+    // Benchmark instrumentation: prime counts actually used, and how the list
+    // splits at SPLIT_THRESHOLD. Printed after the init timer so it cannot
+    // perturb it.
+    {
+        uint64_t split = sieve_split_prime_count(small_primes.data(), small_primes.size());
+        std::cout << "[counts] small_high=" << small_high
+                  << " small_prime_count=" << small_primes.size()
+                  << " gpu_primes=" << gpu_primes.size()
+                  << " | SPLIT_THRESHOLD=" << (uint64_t)SPLIT_THRESHOLD
+                  << " tiled=" << split
+                  << " large=" << (small_primes.size() - split) << "\n\n";
+    }
 
     // ========================================================================
     // INITIALIZE ATOMIC COUNTER & ADJUST TOTALS
