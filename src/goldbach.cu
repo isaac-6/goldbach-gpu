@@ -85,8 +85,12 @@ static std::mutex g_log_mutex;
 
 // --record-check: running global maximum of p_min and the n attaining it.
 // Guarded by its own mutex because segments may finish out of order when more
-// than one GPU is in use, in which case the printed sequence is still a subset
-// of the true records but may not be emitted in increasing n.
+// than one GPU is in use. Under multi-GPU the printed sequence is not merely
+// reordered: a worker that finishes a later segment first raises the running
+// maximum, permanently suppressing genuine records from earlier segments that
+// have not been processed yet. Which records survive is therefore scheduling-
+// dependent and not reproducible across runs. Use a single GPU when the
+// record sequence is being used for validation.
 static std::mutex    g_record_mutex;
 static uint64_t      g_record_p = 0;
 
