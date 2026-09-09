@@ -39,10 +39,20 @@
 //
 // The remaining sieve time is atomic-bound rather than division-bound: primes
 // marking at most one byte per tile are still cheaper left in the tiled kernel,
-// paying full per-tile divisions, than moved to global atomicAnd. But that only
-// holds up to a point -- the curve is sharply asymmetric, costing ~10% one step
-// below the optimum against +14%/+41%/+95% one, two and three steps above, so
-// overshooting is far worse than undershooting.
+// paying full per-tile divisions, than moved to global atomicAnd.
+//
+// The curve is asymmetric, but not in the direction a glance at the extremes
+// suggests. Relative to the optimum, by power-of-two steps:
+//     1 step below (32768)    +9.88%
+//     1 step above (131072)   +1.25%
+//     2 steps above (262144) +13.61%
+//     3 steps above (524288) +40.67%
+//     4 steps above (1048576)+95.15%
+// The nearest neighbour above is eight times cheaper than the nearest neighbour
+// below, so erring high by one step is the safer mistake; overshooting only
+// becomes expensive from two steps out. Do not read this as "when in doubt go
+// lower" -- that is what the shape at three or four steps looks like, not what
+// it does next to the optimum.
 //
 // 65536 is also the best of the two candidates at 1e11 (0.8063s vs 0.8092s for
 // 131072), so no single-default tradeoff arises between the two scales. An

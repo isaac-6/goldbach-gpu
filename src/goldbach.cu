@@ -116,7 +116,6 @@ static const uint64_t FRAGMENTATION_MARGIN_BYTES = 64ULL * 1024 * 1024;
 
 
 struct Options {
-    bool async = false;
     uint64_t batchSize = 100000;
     bool showProgress = false;
     PrimeTest primeTest = PrimeTest::BPSW; 
@@ -537,7 +536,6 @@ int main(int argc, char** argv) {
     for (int i = 1; i < argc; i++) {
         std::string arg = argv[i];
         if (arg == "-h" || arg == "--help") { print_usage(argv[0]); return 0; }
-        if (arg == "--async") { opt.async = true; continue; }
         if (arg == "--progress") { opt.showProgress = true; continue; }
         if (arg.rfind("--batch-size=", 0) == 0) { opt.batchSize = std::stoull(arg.substr(13)); continue; }
         if (arg.rfind("--gpus=", 0) == 0) { requested_gpus = std::stoi(arg.substr(7)); continue; }
