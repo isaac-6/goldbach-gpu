@@ -26,16 +26,33 @@
 // a shared-memory/occupancy question, this is a per-tile-division vs global-
 // atomic tradeoff. Both kernels are correct for any split point.
 //
-// Measured at 1e11 with TILE_ODDS=32768 (RTX 5090), mean of three runs:
-//   8192 -> 1.615s, 16384 -> 1.243s, 32768 -> 1.012s,
-//   65536 -> 0.929s, 131072 -> 0.921s, 262144 -> 0.984s
+// Chosen at N = 1e13, the limit the manuscript reports, with TILE_ODDS=32768
+// on an RTX 5090. Mean of three runs, 0 Phase 2 fallbacks throughout:
 //
-// The optimum sits at ~4x TILE_ODDS, so the remaining sieve time is atomic-
-// bound rather than division-bound: primes marking at most one byte per tile
-// are still cheaper left in the tiled kernel, paying full per-tile divisions,
-// than moved to global atomicAnd. Only past 131072 does division cost win.
+//   SPLIT_THRESHOLD   tiled   large      mean    vs best
+//             32768    3512  224135    97.626s     +9.88%
+//             65536    6542  221105    88.847s      best
+//            131072   12251  215396    89.960s     +1.25%
+//            262144   23000  204647   100.942s    +13.61%
+//            524288   43390  184257   124.983s    +40.67%
+//           1048576   82025  145622   173.384s    +95.15%
+//
+// The remaining sieve time is atomic-bound rather than division-bound: primes
+// marking at most one byte per tile are still cheaper left in the tiled kernel,
+// paying full per-tile divisions, than moved to global atomicAnd. But that only
+// holds up to a point -- the curve is sharply asymmetric, costing ~10% one step
+// below the optimum against +14%/+41%/+95% one, two and three steps above, so
+// overshooting is far worse than undershooting.
+//
+// 65536 is also the best of the two candidates at 1e11 (0.8063s vs 0.8092s for
+// 131072), so no single-default tradeoff arises between the two scales. An
+// earlier sweep at 1e11 alone put the optimum at 131072, but the two differ
+// there by less than wall-clock resolution; only 1e13 separates them.
+//
+// The true optimum lies somewhere in [32768, 131072]; only powers of two were
+// sampled.
 #ifndef SPLIT_THRESHOLD
-#define SPLIT_THRESHOLD 131072
+#define SPLIT_THRESHOLD 65536
 #endif
 
 // Overflow-safe tiled sieve
