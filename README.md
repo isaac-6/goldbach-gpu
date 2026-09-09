@@ -235,10 +235,9 @@ different value. Measured at 10<sup>13</sup>, relative to the optimum of 65536:
 | 3 above | 524288 | +40.7% |
 | 4 above | 1048576 | +95.2% |
 
-The response is asymmetric, but not simply in favour of smaller values: the
-nearest neighbour above costs eight times less than the nearest neighbour below,
-and overshooting only becomes expensive from two steps out. If you must guess,
-err one step high rather than one step low.
+The curve is flat between 65536 and 131072 and rises steeply outside that
+range. The optimum depends on how many sieving primes there are, which grows
+as sqrt(N) above 1e12, so a different limit may prefer a different value.
 
 `--seg-size` mainly trades memory for parallelism and is flat near the default.
 

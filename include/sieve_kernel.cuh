@@ -48,11 +48,9 @@
 //     2 steps above (262144) +13.61%
 //     3 steps above (524288) +40.67%
 //     4 steps above (1048576)+95.15%
-// The nearest neighbour above is eight times cheaper than the nearest neighbour
-// below, so erring high by one step is the safer mistake; overshooting only
-// becomes expensive from two steps out. Do not read this as "when in doubt go
-// lower" -- that is what the shape at three or four steps looks like, not what
-// it does next to the optimum.
+// The curve is flat between 65536 and 131072 and rises steeply outside that
+// range. The optimum depends on how many sieving primes there are, which grows
+// as sqrt(N) above 1e12, so a different limit may prefer a different value.
 //
 // 65536 is also the best of the two candidates at 1e11 (0.8063s vs 0.8092s for
 // 131072), so no single-default tradeoff arises between the two scales. An
