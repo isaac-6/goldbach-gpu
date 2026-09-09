@@ -1,3 +1,9 @@
+# Development history
+
+A record of how this project was built, one step at a time. Numbers here are
+historical and reflect the implementation at the time each entry was added.
+For current performance, see the README.
+
 # Goldbach Verification Results Log
 
 All range verification results were produced on the following platform:
@@ -166,4 +172,16 @@ p=113 (10^200) found in 43 ms; p=26,981 (10^1000) takes 363 ms with 20 threads.
 - [x] Range verification to 10^12 (500 billion even numbers, 41 minutes)
 - [x] Multi-GPU adaptation (tested on 8x H100)
 - [x] GPU-accelerated sieve construction (remove CPU sieve bottleneck)
+
+[start of v3.0.0]
+- [x] Differential test suite (GPU vs independent CPU implementations)
+- [x] Byte-wide shared-memory marking, removes atomic serialisation (6.8x sieve)
+- [x] Transposed Phase 1, 64 even numbers per thread (~27x less issued work)
+- [x] Verification state as bitset, 200 MB to 25 MB per segment
+- [x] Separate kernel for large sieving primes
+- [x] Validation against published minimal-prime records (--record-check)
+- [x] Range verification to 10^14 (single RTX 5090, 933 s)
+
+[not done]
 - [ ] Goldbach partition counting c(n) at scale
+- [ ] Range verification to 10^15
