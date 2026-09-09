@@ -16,7 +16,7 @@ Verifies every even number from 4 to 10<sup>14</sup> in **15 minutes 33 seconds*
 on a single RTX 5090, with no counterexamples found. On four GPUs, 10<sup>13</sup>
 takes 20.9 seconds at 99.96% parallel efficiency.
 
-This does not approach the research frontier — Oliveira e Silva, Herzog and Pardi
+This does not approach the research frontier: Oliveira e Silva, Herzog and Pardi
 verified to 4×10<sup>18</sup> in 2014 using a distributed CPU cluster over several
 years. The contribution here is that a comparable class of computation runs on
 hardware an individual can own, in minutes rather than machine-years.
@@ -40,12 +40,12 @@ standard deviation. Zero Phase 2 fallbacks throughout.
 
 Every row above is a plain verification run: no `--record-check`, no profiler.
 At 10<sup>10</sup> the computation is only 0.087 s against 0.56 s wall clock, so
-most of the wall time is fixed startup — that row should not be read as a
+most of the wall time is fixed startup. That row should not be read as a
 throughput figure.
 
 Scaling stays close to linear across the whole ladder, including the last decade:
 10<sup>13</sup> → 10<sup>14</sup> is 10.51×. Normalised per segment the cost is
-3.24, 3.38, 3.55 and 3.73 ms at 10<sup>11</sup> through 10<sup>14</sup> — a 5%
+3.24, 3.38, 3.55 and 3.73 ms at 10<sup>11</sup> through 10<sup>14</sup>; 5%
 rise over the final decade, not a regime change.
 
 There is a real effect underneath: above 10<sup>12</sup> the sieve bound √N
@@ -76,8 +76,8 @@ than superlinear scaling. On wall clock the 4-GPU 10<sup>13</sup> figure is
 regardless of GPU count, so wall-clock efficiency is 92.7% where computation
 efficiency is ~100%.
 
-Work is distributed by a lock-free atomic counter — each GPU claims the next
-segment when it finishes the previous one — so devices of different speeds
+Work is distributed by a lock-free atomic counter (each GPU claims the next
+segment when it finishes the previous one) so devices of different speeds
 balance automatically and no GPU waits on another.
 
 ---
@@ -153,14 +153,14 @@ Two ideas account for most of the performance:
 
 **Byte-wide marking during sieving.** Clearing a bit is a read-modify-write, so
 concurrent threads sieving different primes into the same 64-bit word lose each
-other's updates unless the operation is atomic — and the atomic serialises them.
+other's updates unless the operation is atomic, and the atomic serialises them.
 Giving each candidate its own byte during construction makes marking a plain
 store of a constant, which needs no atomic because concurrent stores of the same
 value cannot conflict. The result is packed back to bits before leaving shared
 memory, so the stored representation is unchanged.
 
 **Transposed verification.** For 64 consecutive even numbers and a fixed prime
-*p*, the complements *n − p* are 64 consecutive odd numbers — exactly one 64-bit
+*p*, the complements *n − p* are 64 consecutive odd numbers: exactly one 64-bit
 window of the prime bitset. One shifted load and one OR therefore resolves 64
 numbers against a prime at once. Because a thread continues until all 64 of its
 numbers are settled, and hard numbers are rare, widening the group costs far less
@@ -293,8 +293,8 @@ on GPUs. https://arxiv.org/abs/2603.02621
 ```
 
 **Note on versions.** The preprints above describe release v2.0.0. Two
-concurrency defects have since been found and fixed in that code — see
-[CHANGELOG.md](CHANGELOG.md) — and a corrigendum reporting corrected timings is
+concurrency defects have since been found and fixed in that code (see
+[CHANGELOG.md](CHANGELOG.md)) and a corrigendum reporting corrected timings is
 in preparation. The performance figures on this page come from the current
 release and are not comparable to those in the preprints, which describe a
 different implementation. A manuscript covering the optimisations is also in

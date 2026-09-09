@@ -1,4 +1,4 @@
-## [Unreleased]
+## [3.0.0] - 2026-09-09
 
 ### Fixed
 - **Segment sieve correctness.** `tiled_sieve_segment_kernel` marked composites
@@ -8,31 +8,70 @@
   this bitset, Phase 1 could accept a partition `n = p + q` in which `q` is not
   prime. Now uses `atomicAnd`. (kudos to Kenzi Voyer for reporting)
 
+- **Parallel bitset construction.** `build_prime_bitset` gave each OpenMP thread
+  a slice that was exclusive in bit index but not in 64-bit word, so adjacent
+  threads raced on boundary words and lost each other's clears. A lost clear
+  leaves the bit set, reporting a composite as prime. Measured at 90 of 250
+  builds wrong with 16 threads. Slices are now word-aligned.
+
 - **BPSW overflow above 2^63.** Intermediate sums in the strong Lucas test
   could exceed 64 bits and wrap, causing genuine primes to be reported as
   composite. Affected the default primality path introduced in v2.1.0 for
   `n > 2^63` only. The failure direction was safe: false negatives cause
   Phase 2 fallbacks (never false verification).
 
+- **32-bit thread index overflow.** All kernels computed their global index as
+  `blockIdx.x * blockDim.x + threadIdx.x`, a 32-bit product that wrapped past
+  2^32 threads. Affected even numbers were skipped by the GPU and fell through
+  to the single-threaded CPU path, presenting as a hang rather than an error.
+
+- **VRAM validation.** The check compared a ~118 MB estimate against total
+  device memory while real usage is ~573 MiB, the difference being the CUDA
+  context, which was not modelled. It now compares against free memory after
+  context creation, and counts `d_small_primes`, previously omitted.
+
+- **CUDA architecture detection.** `native` silently resolved to `sm_75` on an
+  `sm_120` device, producing a binary that ran via PTX JIT. Automatic detection
+  is now verified against the GPU's reported compute capability.
+
 ### Added
 - `test_gpu_sieve`: differential test comparing `tiled_sieve_segment_kernel`
   output against the CPU segmented sieve over fixed and randomized ranges,
   including the `q_low = 3` edge and ranges straddling 2^32.
-
 - `test_primality`: cross-checks BPSW against the 12-base deterministic
   Miller-Rabin oracle, with emphasis on the region above 2^63.
-
+- `test_phase1`: differential test of Phase 1 against a CPU reference, comparing
+  across prime-list prefixes so the check resolves which prime succeeded rather
+  than the saturated yes/no verdict.
+- `test_bitset_race`: repeated parallel bitset construction against a
+  single-threaded reference, at word-aligned and misaligned thread boundaries.
+- `test_records`: minimal primes against 48 published record values from
+  Oliveira e Silva's verification data.
+- `--record-check`: reports each new maximum minimal prime during a run. Off by
+  default; costs ~26% at 1e14. Records may be suppressed under `--gpus>1`.
 - `analyze_pmin`: measures the distribution of the first successful prime
   index in Phase 1, per number and per warp.
 
 ### Changed
-- Verification throughput at N=1e10 decreases from ~0.44 s to ~1.05 s on a
-  single RTX 5090 as a result of the correctness fix. Further optimization is in progress.
-
 - Segment sieve marks composites as bytes rather than bits in shared memory,
-  removing the atomic read-modify-write on contended words. Verification at
-  N=1e11 improves from 11.09 s to 4.65 s; the sieve kernel itself is 6.8x
-  faster. VRAM representation is unchanged.
+  removing the atomic read-modify-write on contended words.
+- Phase 1 processes 64 even numbers per thread as a single 64-bit word, since
+  the complements of 64 consecutive even numbers for a fixed prime are 64
+  consecutive odd numbers. Issued work falls from ~50 warp-iterations per even
+  number to 1.85.
+- Phase 1 verification state stored as a bitset: 200 MB to 25 MB per segment at
+  `--seg-size=200000000`.
+- Sieving primes above `SPLIT_THRESHOLD` handled by a separate kernel once per
+  segment rather than rescanned per tile.
+- `TILE_ODDS` default 16384 -> 32768; `SPLIT_THRESHOLD` introduced, default 65536.
+- `--seg-size` derived from free VRAM when not given.
+- Net effect at N=1e11: 11.09 s -> 0.81 s against a corrected v2.1.0 baseline.
+  1e14 verifies in 933 s on a single RTX 5090.
+
+### Removed
+- `goldbach_gpu5a`, an experimental near-duplicate of `goldbach.cu` carrying its
+  own copies of the sieve and primality code.
+- `--async`, which was parsed and never used.
 
 ---
 
