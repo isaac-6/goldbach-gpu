@@ -83,6 +83,13 @@ static std::atomic<uint64_t> g_total_processed{0};
 
 static std::mutex g_log_mutex;
 
+// --record-check: running global maximum of p_min and the n attaining it.
+// Guarded by its own mutex because segments may finish out of order when more
+// than one GPU is in use, in which case the printed sequence is still a subset
+// of the true records but may not be emitted in increasing n.
+static std::mutex    g_record_mutex;
+static uint64_t      g_record_p = 0;
+
 template<typename... Args>
 void safe_log(Args... args) {
     std::ostringstream oss;
@@ -109,6 +116,7 @@ struct Options {
     uint64_t batchSize = 100000;
     bool showProgress = false;
     PrimeTest primeTest = PrimeTest::BPSW; 
+    bool recordCheck = false;
 };
 
 // Throw exception instead of exit(1) for graceful multi-thread shutdown
@@ -202,7 +210,8 @@ void run_gpu_worker(
     const std::vector<uint64_t>& small_primes,
     const std::vector<uint64_t>& gpu_primes,
     const std::vector<uint64_t>& cpu_primes,
-    PrimeTest primeTest
+    PrimeTest primeTest,
+    bool recordCheck
 )
 {
     try {
@@ -239,6 +248,7 @@ void run_gpu_worker(
         uint64_t* d_verified = nullptr;   // bitset: 1 bit per even number
         uint64_t* d_p_batch  = nullptr;
         uint32_t* d_unverified_count = nullptr;
+        unsigned long long* d_record = nullptr;
 
         CUDA_CHECK(cudaMalloc(&d_seg_bits, seg_bytes));
         // d_verified holds one bit per even number; SEG_SIZE is the largest
@@ -247,6 +257,7 @@ void run_gpu_worker(
         CUDA_CHECK(cudaMalloc(&d_verified, max_verified_words * sizeof(uint64_t)));
         CUDA_CHECK(cudaMalloc(&d_p_batch, P_BATCH * sizeof(uint64_t)));
         CUDA_CHECK(cudaMalloc(&d_unverified_count, sizeof(uint32_t)));
+        if (recordCheck) CUDA_CHECK(cudaMalloc(&d_record, sizeof(unsigned long long)));
 
         CUDA_CHECK(cudaStreamSynchronize(stream));
 
@@ -283,6 +294,8 @@ void run_gpu_worker(
             uint64_t verified_words = (seg_even_count + 63) / 64;
             CUDA_CHECK(cudaMemsetAsync(d_verified, 0,
                                        verified_words * sizeof(uint64_t), stream));
+            if (recordCheck)
+                CUDA_CHECK(cudaMemsetAsync(d_record, 0, sizeof(unsigned long long), stream));
             for (uint64_t bi = 0; bi < gpu_primes.size(); bi += P_BATCH) {
                 uint64_t bsize = std::min(P_BATCH, (uint64_t)gpu_primes.size() - bi);
                 CUDA_CHECK(cudaMemcpyAsync(d_p_batch, gpu_primes.data() + bi, bsize * sizeof(uint64_t), cudaMemcpyHostToDevice, stream));
@@ -290,7 +303,7 @@ void run_gpu_worker(
                 launch_goldbach_phase1(
                     d_small, small_high, d_seg_bits, q_low, q_high,
                     seg_start, seg_even_count, d_p_batch, bsize, d_verified,
-                    P_SMALL, THREADS_PER_BLOCK, stream);
+                    P_SMALL, THREADS_PER_BLOCK, stream, d_record);
                 CUDA_CHECK(cudaGetLastError());
             }
 
@@ -301,7 +314,24 @@ void run_gpu_worker(
             uint32_t count_blocks = (uint32_t)((verified_words + 255) / 256);
             count_unverified_kernel<<<count_blocks, 256, 0, stream>>>(d_verified, seg_even_count, d_unverified_count);
             CUDA_CHECK(cudaMemcpyAsync(&unverified_count, d_unverified_count, sizeof(uint32_t), cudaMemcpyDeviceToHost, stream));
+
+            // Rides along with the unverified-count readback: no extra sync.
+            unsigned long long record_enc = 0;
+            if (recordCheck)
+                CUDA_CHECK(cudaMemcpyAsync(&record_enc, d_record, sizeof(unsigned long long),
+                                           cudaMemcpyDeviceToHost, stream));
             CUDA_CHECK(cudaStreamSynchronize(stream));
+
+            if (recordCheck && record_enc) {
+                uint64_t rp  = (uint64_t)(record_enc >> RECORD_IDX_BITS);
+                uint64_t idx = RECORD_IDX_MASK - (record_enc & RECORD_IDX_MASK);
+                uint64_t rn  = seg_start + 2 * idx;
+                std::lock_guard<std::mutex> lk(g_record_mutex);
+                if (rp > g_record_p) {
+                    g_record_p = rp;
+                    safe_log("[record] n=", rn, " p_min=", rp);
+                }
+            }
 
             // D. CPU Phase 2 Processing
             if (unverified_count > 0) {
@@ -336,6 +366,7 @@ void run_gpu_worker(
         CUDA_CHECK(cudaFree(d_verified));
         CUDA_CHECK(cudaFree(d_p_batch));
         CUDA_CHECK(cudaFree(d_unverified_count));
+        if (d_record) CUDA_CHECK(cudaFree(d_record));
 
     } catch (const std::exception& e) {
         safe_log("[!] FATAL ERROR in GPU ", device_id, " Worker: ", e.what());
@@ -476,6 +507,7 @@ void print_usage(const char* prog) {
               << "  LIMIT            Max even integer to check\n\n"
               << "Optional:\n"
               << "  --seg-size=N     Even integers per segment (default: derived from free VRAM)\n"
+              << "  --record-check   Print each new maximum p_min as [record] n=... p_min=...\n"
               << "  --p-small=N      GPU prime search bound (max: 4,000,000,000)\n"
               << "  --batch-size=N   Primes per GPU batch (default: 100000)\n"
               << "  --gpus=N         Number of GPUs to use (default: 1 | all: -1)\n"
@@ -507,6 +539,7 @@ int main(int argc, char** argv) {
         if (arg.rfind("--gpus=", 0) == 0) { requested_gpus = std::stoi(arg.substr(7)); continue; }
         if (arg.rfind("--seg-size=", 0) == 0) { SEG_SIZE = std::stoull(arg.substr(11)); seg_size_explicit = true; continue; }
         if (arg.rfind("--p-small=", 0) == 0) { P_SMALL = std::stoull(arg.substr(10)); continue; }
+        if (arg == "--record-check") { opt.recordCheck = true; continue; }
         if (arg.rfind("--start=", 0) == 0) { START = std::stoull(arg.substr(8)); continue; }
         if (arg.rfind("--primetest=", 0) == 0) {
             std::string mode = arg.substr(12);
@@ -629,6 +662,27 @@ int main(int argc, char** argv) {
         if (p <= P_SMALL) gpu_primes.push_back(p);
     }
 
+    // Both Phase 1 kernels return on the FIRST prime that works, so the prime
+    // they report is p_min only if this list ascends. Verification itself does
+    // not depend on the order, but --record-check does, and a silently
+    // mis-ordered list would give plausible-looking wrong records.
+    if (!std::is_sorted(gpu_primes.begin(), gpu_primes.end())) {
+        std::cerr << "[!] ERROR: gpu_primes is not sorted ascending.\n";
+        std::cerr << "    Phase 1 returns on the first hit, so p_min and --record-check\n";
+        std::cerr << "    both depend on ascending order.\n";
+        return 1;
+    }
+    if (opt.recordCheck) {
+        // The record encoding packs p_min and the segment index into 32 bits each.
+        if (SEG_SIZE > RECORD_IDX_MASK || P_SMALL > RECORD_IDX_MASK) {
+            std::cerr << "[!] ERROR: --record-check needs --seg-size and --p-small below "
+                      << RECORD_IDX_MASK << ".\n";
+            return 1;
+        }
+        std::cout << "[record] tracking enabled (" << gpu_primes.size()
+                  << " primes, ascending)\n";
+    }
+
     // Fail-Fast Validations. Placed here so small_primes.size() is the real
     // count rather than an estimate, but still ahead of the ~200 ms Phase 2
     // prime table below.
@@ -740,7 +794,7 @@ int main(int argc, char** argv) {
             run_gpu_worker, g, LIMIT, SEG_SIZE, P_SMALL, opt.batchSize,
             small_high, small_bytes, std::cref(small_bitset),
             std::cref(small_primes), std::cref(gpu_primes), std::cref(cpu_primes),
-            opt.primeTest
+            opt.primeTest, opt.recordCheck
         );
     }
 

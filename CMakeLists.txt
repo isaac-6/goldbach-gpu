@@ -138,7 +138,13 @@ target_link_libraries(test_primality PRIVATE goldbach_lib)
 set_target_properties(test_primality PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 
-# 7. build_prime_bitset race regression test
+# 7. Published p_min record cross-check (external validation)
+add_executable(test_records src/test_records.cpp)
+target_link_libraries(test_records PRIVATE goldbach_lib)
+set_target_properties(test_records PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+
+# 8. build_prime_bitset race regression test
 add_executable(test_bitset_race src/test_bitset_race.cpp)
 target_link_libraries(test_bitset_race PRIVATE goldbach_lib OpenMP::OpenMP_CXX)
 set_target_properties(test_bitset_race PROPERTIES

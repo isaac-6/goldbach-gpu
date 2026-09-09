@@ -74,12 +74,25 @@ __device__ bool is_prime_q(
 // - p > n/2 uses division (safe for all uint64_t values)
 // - n - p cannot underflow because p <= n/2 < n
 // -------------------------------------------------------
+// RECORD_MAX_SHIFT: --record-check packs (p_min, index) into one 64-bit word
+// so a single atomicMax yields the largest p_min and, among ties, the smallest
+// index. The index is stored complemented so that larger encoded value means
+// smaller n. Requires SEG_SIZE and P_SMALL to fit in 32 bits, asserted on the
+// host when the flag is on.
+static const int      RECORD_IDX_BITS = 32;
+static const uint64_t RECORD_IDX_MASK = 0xFFFFFFFFULL;
+
+__device__ __forceinline__ unsigned long long record_encode(uint64_t p, uint64_t idx) {
+    return ((unsigned long long)p << RECORD_IDX_BITS) | (RECORD_IDX_MASK - idx);
+}
+
+template<bool RECORD>
 __global__ void goldbach_phase1_kernel(
     const uint64_t* __restrict__ d_small, uint64_t small_high,
     const uint64_t* __restrict__ d_seg_bits, uint64_t q_low, uint64_t q_high,
     uint64_t seg_even_start, uint64_t seg_even_count,
     const uint64_t* __restrict__ p_batch, uint64_t p_batch_size,
-    uint64_t* d_verified)
+    uint64_t* d_verified, unsigned long long* d_record)
 {
     uint64_t tid = (uint64_t)blockIdx.x * blockDim.x + threadIdx.x;
     if (tid >= seg_even_count) return;
@@ -98,6 +111,14 @@ __global__ void goldbach_phase1_kernel(
         if (is_prime_q(q, d_small, small_high, d_seg_bits, q_low, q_high)) {
             atomicOr(reinterpret_cast<unsigned long long*>(&d_verified[tid >> 6]),
                      1ULL << (tid & 63));
+            // RECORD-CHECK DEPENDENCY: p_batch is ascending and this returns on
+            // the FIRST hit, so p here is p_min(n) -- the smallest prime with
+            // n - p prime. --record-check relies on exactly that. If this loop
+            // ever stops scanning in ascending order, or returns on a later
+            // hit, p ceases to be p_min and the record output becomes wrong
+            // while the verification result stays correct. The host asserts the
+            // prime array is sorted ascending at startup.
+            if (RECORD) atomicMax(d_record, record_encode(p, tid));
             return;
         }
     }
@@ -128,11 +149,12 @@ __global__ void goldbach_phase1_kernel(
 // READS ONE WORD PAST i_base's word: d_seg_bits must be allocated with one
 // padding word beyond the segment's own words.
 // -------------------------------------------------------
+template<bool RECORD>
 __global__ void goldbach_phase1_transposed_kernel(
     const uint64_t* __restrict__ d_seg_bits, uint64_t q_low,
     uint64_t seg_even_start, uint64_t seg_even_count,
     const uint64_t* __restrict__ p_batch, uint64_t p_batch_size,
-    uint64_t* __restrict__ d_verified)
+    uint64_t* __restrict__ d_verified, unsigned long long* d_record)
 {
     uint64_t t           = (uint64_t)blockIdx.x * blockDim.x + threadIdx.x;
     uint64_t group_start = t * 64;                 // index of this thread's first even number
@@ -154,6 +176,10 @@ __global__ void goldbach_phase1_transposed_kernel(
     uint64_t tail_mask     = (valid == 64) ? 0ULL : (~0ULL << valid);
     uint64_t verified_word = d_verified[t] | tail_mask;
 
+    // --record-check: the last prime to clear any new bit in this word is the
+    // largest p_min among this thread's 64 numbers, because p_batch ascends.
+    uint64_t rec_p = 0, rec_bits = 0;
+
     for (uint64_t i = 0; i < p_batch_size && verified_word != ~0ULL; i++) {
         uint64_t p = p_batch[i];
         // p = 2 gives an even q, which the odd-only segment bitset cannot
@@ -173,10 +199,25 @@ __global__ void goldbach_phase1_transposed_kernel(
             window = (d_seg_bits[word_idx] >> shift)
                    | (d_seg_bits[word_idx + 1] << (64 - shift));
         }
+        // RECORD-CHECK DEPENDENCY: p_batch is ascending and the loop exits as
+        // soon as every bit is set, so the last prime that sets a given bit is
+        // that number's p_min. --record-check relies on exactly that ordering;
+        // scanning primes in any other order leaves verification correct but
+        // makes the reported p_min wrong.
+        if (RECORD) {
+            uint64_t newly = window & ~verified_word;
+            if (newly) { rec_p = p; rec_bits = newly; }
+        }
         verified_word |= window;
     }
 
     d_verified[t] = verified_word;
+
+    if (RECORD && rec_p) {
+        // Lowest set bit is the smallest n attaining this p_min.
+        uint64_t idx = group_start + (uint64_t)(__ffsll((unsigned long long)rec_bits) - 1);
+        if (idx < seg_even_count) atomicMax(d_record, record_encode(rec_p, idx));
+    }
 }
 
 // -------------------------------------------------------
@@ -204,19 +245,34 @@ static inline void launch_goldbach_phase1(
     uint64_t seg_even_start, uint64_t seg_even_count,
     const uint64_t* d_p_batch, uint64_t p_batch_size,
     uint64_t* d_verified, uint64_t p_small,
-    int threads_per_block, cudaStream_t stream)
+    int threads_per_block, cudaStream_t stream,
+    unsigned long long* d_record = nullptr)
 {
+    // d_record == nullptr selects the RECORD=false instantiation, so the
+    // tracking code is not merely branched around -- it is not compiled in.
     if (seg_even_start > 2 * p_small + 128) {
         uint64_t groups = (seg_even_count + 63) / 64;
         uint32_t blocks = (uint32_t)((groups + threads_per_block - 1) / threads_per_block);
-        goldbach_phase1_transposed_kernel<<<blocks, threads_per_block, 0, stream>>>(
-            d_seg_bits, q_low, seg_even_start, seg_even_count,
-            d_p_batch, p_batch_size, d_verified);
+        if (d_record)
+            goldbach_phase1_transposed_kernel<true><<<blocks, threads_per_block, 0, stream>>>(
+                d_seg_bits, q_low, seg_even_start, seg_even_count,
+                d_p_batch, p_batch_size, d_verified, d_record);
+        else
+            goldbach_phase1_transposed_kernel<false><<<blocks, threads_per_block, 0, stream>>>(
+                d_seg_bits, q_low, seg_even_start, seg_even_count,
+                d_p_batch, p_batch_size, d_verified, nullptr);
     } else {
         uint32_t blocks =
             (uint32_t)((seg_even_count + threads_per_block - 1) / threads_per_block);
-        goldbach_phase1_kernel<<<blocks, threads_per_block, 0, stream>>>(
-            d_small, small_high, d_seg_bits, q_low, q_high,
-            seg_even_start, seg_even_count, d_p_batch, p_batch_size, d_verified);
+        if (d_record)
+            goldbach_phase1_kernel<true><<<blocks, threads_per_block, 0, stream>>>(
+                d_small, small_high, d_seg_bits, q_low, q_high,
+                seg_even_start, seg_even_count, d_p_batch, p_batch_size,
+                d_verified, d_record);
+        else
+            goldbach_phase1_kernel<false><<<blocks, threads_per_block, 0, stream>>>(
+                d_small, small_high, d_seg_bits, q_low, q_high,
+                seg_even_start, seg_even_count, d_p_batch, p_batch_size,
+                d_verified, nullptr);
     }
 }
