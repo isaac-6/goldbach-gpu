@@ -60,6 +60,12 @@ PrimeBitset build_prime_bitset(uint64_t limit) {
     // Each thread handles roughly total_odds/nthreads odd numbers
     uint64_t odds_per_thread = (total_odds + nthreads - 1) / nthreads;
 
+    // Slices must be exclusive in WORDS, not just in bit index. The bitset is
+    // stored as uint64_t and clear() is a non-atomic read-modify-write, so a
+    // boundary falling mid-word lets two threads race on that word and lose
+    // each other's clears, leaving composites marked prime.
+    odds_per_thread = (odds_per_thread + 63) & ~63ULL;
+
     #pragma omp parallel for schedule(static) num_threads(nthreads)
     for (int t = 0; t < nthreads; t++) {
         // Compute this thread's range of odd numbers

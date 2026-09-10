@@ -63,6 +63,13 @@ target_link_libraries(goldbach PRIVATE goldbach_lib)
 set_target_properties(goldbach PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 
+# Race regression test for build_prime_bitset (ported from v3.0.0 to
+# demonstrate the word-aligned OpenMP slice fix).
+add_executable(test_bitset_race src/test_bitset_race.cpp)
+target_link_libraries(test_bitset_race PRIVATE goldbach_lib OpenMP::OpenMP_CXX)
+set_target_properties(test_bitset_race PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+
 # 2. Arbitrary Precision Checker (Requires GMP)
 add_executable(big_check src/big_check.cpp)
 target_link_libraries(big_check PRIVATE goldbach_lib ${GMP_LIBRARIES} OpenMP::OpenMP_CXX)
