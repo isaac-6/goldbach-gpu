@@ -1,0 +1,27 @@
+[ 11%] Building CXX object CMakeFiles/goldbach_lib.dir/src/segmented_sieve.cpp.o
+[ 11%] Building CXX object CMakeFiles/goldbach_lib.dir/src/prime_bitset.cpp.o
+[ 17%] Linking CXX static library libgoldbach_lib.a
+[ 17%] Built target goldbach_lib
+[ 23%] Building CXX object CMakeFiles/test_bitset_race.dir/src/test_bitset_race.cpp.o
+[ 29%] Building CXX object CMakeFiles/big_check.dir/src/big_check.cpp.o
+[ 35%] Building CUDA object CMakeFiles/goldbach.dir/src/goldbach.cu.o
+[ 41%] Building CUDA object CMakeFiles/goldbach_gpu5a.dir/src/goldbach_gpu5a.cu.o
+[ 47%] Building CUDA object CMakeFiles/single_check.dir/src/single_check.cu.o
+[ 52%] Building CUDA object CMakeFiles/goldbach_gpu3.dir/legacy/goldbach_gpu3.cu.o
+[ 58%] Building CXX object CMakeFiles/cpu_goldbach.dir/src/cpu_goldbach.cpp.o
+[ 64%] Linking CXX executable bin/test_bitset_race
+[ 64%] Built target test_bitset_race
+[ 70%] Linking CXX executable bin/cpu_goldbach
+[ 70%] Built target cpu_goldbach
+[ 76%] Linking CXX executable bin/big_check
+[ 76%] Built target big_check
+[ 82%] Linking CXX executable bin/single_check
+[ 82%] Built target single_check
+[ 88%] Linking CXX executable bin/legacy/goldbach_gpu3
+[ 88%] Built target goldbach_gpu3
+[ 94%] Linking CXX executable bin/goldbach_gpu5a
+[100%] Linking CXX executable bin/goldbach
+[100%] Built target goldbach_gpu5a
+[100%] Built target goldbach
+ELF file    1: goldbach.1.sm_120.cubin
+ELF file    1: goldbach_gpu3.1.sm_120.cubin

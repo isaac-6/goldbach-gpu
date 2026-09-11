@@ -1,0 +1,74 @@
+### D1 quantification, v2.0.0 kernel, defect intact
+### run 5  started 2026-09-11 11:23:41 UTC
+  [from 3 (q_low edge)] [3, 1000000]
+    q=25  gpu=prime cpu=composite
+    q=35  gpu=prime cpu=composite
+    q=49  gpu=prime cpu=composite
+    q=55  gpu=prime cpu=composite
+    q=65  gpu=prime cpu=composite
+    [range] odds=500000 composites=421503 false_prime=6227 false_composite=0 rate_vs_composites=1.477332%
+    -> 6227 mismatches
+  [small offset] [999983, 2000000]
+    q=999985  gpu=prime cpu=composite
+    q=999987  gpu=prime cpu=composite
+    q=999989  gpu=prime cpu=composite
+    q=999991  gpu=prime cpu=composite
+    q=999993  gpu=prime cpu=composite
+    [range] odds=500010 composites=429574 false_prime=9797 false_composite=0 rate_vs_composites=2.280632%
+    -> 9797 mismatches
+  [straddling 2^32] [4294967291, 4295000000]
+    q=4294967295  gpu=prime cpu=composite
+    q=4294967297  gpu=prime cpu=composite
+    q=4294967299  gpu=prime cpu=composite
+    q=4294967309  gpu=prime cpu=composite
+    q=4294967321  gpu=prime cpu=composite
+    [range] odds=16356 composites=14866 false_prime=597 false_composite=0 rate_vs_composites=4.015875%
+    -> 597 mismatches
+  [1e9] [1000000000, 1000200000]
+    q=1000000001  gpu=prime cpu=composite
+    q=1000000003  gpu=prime cpu=composite
+    q=1000000005  gpu=prime cpu=composite
+    q=1000000019  gpu=prime cpu=composite
+    q=1000000025  gpu=prime cpu=composite
+    [range] odds=100001 composites=90396 false_prime=2745 false_composite=0 rate_vs_composites=3.036639%
+    -> 2745 mismatches
+  [TILE_ODDS^2 boundary] [1073741824, 1074141824]
+    q=1073741825  gpu=prime cpu=composite
+    q=1073741829  gpu=prime cpu=composite
+    q=1073741845  gpu=prime cpu=composite
+    q=1073741849  gpu=prime cpu=composite
+    q=1073741851  gpu=prime cpu=composite
+    [range] odds=200001 composites=180825 false_prime=5152 false_composite=0 rate_vs_composites=2.849164%
+    -> 5152 mismatches
+  [1e11] [100000000000, 100000400000]
+    q=100000000007  gpu=prime cpu=composite
+    q=100000000015  gpu=prime cpu=composite
+    q=100000000025  gpu=prime cpu=composite
+    q=100000000027  gpu=prime cpu=composite
+    q=100000000031  gpu=prime cpu=composite
+    [range] odds=200001 composites=184167 false_prime=4129 false_composite=0 rate_vs_composites=2.241987%
+    -> 4129 mismatches
+  [1e12] [1000000000000, 1000000400000]
+    q=1000000000001  gpu=prime cpu=composite
+    q=1000000000005  gpu=prime cpu=composite
+    q=1000000000013  gpu=prime cpu=composite
+    q=1000000000015  gpu=prime cpu=composite
+    q=1000000000025  gpu=prime cpu=composite
+    [range] odds=200001 composites=185476 false_prime=3796 false_composite=0 rate_vs_composites=2.046626%
+    -> 3796 mismatches
+  [randomized] 50 ranges below 1e9, 25 up to 1e12
+
+=== D1 QUANTIFICATION (v2.0.0 kernel, defect intact) ===
+  launch config      : grid=<per range> block=256 shared=4096 bytes
+  odd numbers compared     : 12202140
+  of which prime (CPU)     : 1196250
+  of which composite (CPU) : 11005890
+  disagreements total      : 299715
+    composite reported PRIME: 299715
+    prime reported COMPOSITE: 0
+  rate vs all odds compared: 2.45624948%
+  rate vs composites       : 2.72322366%
+
+TOTAL MISMATCHES: 299715
+FAIL
+### exit=1

@@ -1,0 +1,24 @@
+PROGRESS 1e10 run1/5 computation=1.04354 seconds fallbacks=0
+PROGRESS 1e10 run2/5 computation=1.0301 seconds fallbacks=0
+PROGRESS 1e10 run3/5 computation=1.07789 seconds fallbacks=0
+PROGRESS 1e10 run4/5 computation=1.07476 seconds fallbacks=0
+PROGRESS 1e10 run5/5 computation=1.07296 seconds fallbacks=0
+ROW_COMPLETE 1e10
+PROGRESS 1e11 run1/5 computation=11.4207 seconds fallbacks=0
+PROGRESS 1e11 run2/5 computation=11.3321 seconds fallbacks=0
+PROGRESS 1e11 run3/5 computation=11.2881 seconds fallbacks=0
+PROGRESS 1e11 run4/5 computation=11.1808 seconds fallbacks=0
+PROGRESS 1e11 run5/5 computation=11.165 seconds fallbacks=0
+ROW_COMPLETE 1e11
+PROGRESS 1e12 run1/5 computation=145.619 seconds fallbacks=0
+PROGRESS 1e12 run2/5 computation=145.274 seconds fallbacks=0
+PROGRESS 1e12 run3/5 computation=144.477 seconds fallbacks=0
+PROGRESS 1e12 run4/5 computation=144.453 seconds fallbacks=0
+PROGRESS 1e12 run5/5 computation=144.93 seconds fallbacks=0
+ROW_COMPLETE 1e12
+PROGRESS 1e13 run1/3 computation=3248 seconds fallbacks=0
+PROGRESS 1e13 run2/3 computation=3240.88 seconds fallbacks=0
+PROGRESS 1e13 run3/3 computation=3248.05 seconds fallbacks=0
+ROW_COMPLETE 1e13
+ladder.csv: 18 complete runs
+LADDER_V201_COMPLETE

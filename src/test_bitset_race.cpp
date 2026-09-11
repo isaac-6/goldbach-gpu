@@ -60,6 +60,9 @@ static Result run_case(const char* label, uint64_t limit, int builds)
 
     Result r{ (uint64_t)builds, 0, 0 };
     uint64_t shown = 0;
+    // Maximum distance, in bit positions, from the nearest slice boundary at
+    // which any failure occurred. Measured over every bad bit, not just shown ones.
+    uint64_t max_dist = 0, max_dist_bit = 0, max_dist_q = 0;
 
     for (int b = 0; b < builds; b++) {
         PrimeBitset bs = build_prime_bitset(limit);
@@ -72,6 +75,12 @@ static Result run_case(const char* label, uint64_t limit, int builds)
 
             bad++;
             r.total_bad_bits++;
+            {
+                uint64_t bit = (q - 3) / 2;
+                uint64_t m = bit % opt;
+                uint64_t dist = (m < opt - m) ? m : opt - m;
+                if (dist > max_dist) { max_dist = dist; max_dist_bit = bit; max_dist_q = q; }
+            }
             if (shown < 6) {
                 uint64_t bit = (q - 3) / 2;
                 // Distance to the nearest slice boundary, signed-ish.
@@ -89,9 +98,19 @@ static Result run_case(const char* label, uint64_t limit, int builds)
         if (bad) r.bad_builds++;
     }
 
-    printf("        -> %llu/%llu builds wrong (%llu bad bits total)\n\n",
+    printf("        -> %llu/%llu builds wrong (%llu bad bits total)\n",
            (unsigned long long)r.bad_builds, (unsigned long long)r.builds,
            (unsigned long long)r.total_bad_bits);
+    if (r.total_bad_bits)
+        printf("        max distance from nearest slice boundary: %llu bit positions"
+               "  (at q=%llu, bit=%llu)\n",
+               (unsigned long long)max_dist, (unsigned long long)max_dist_q,
+               (unsigned long long)max_dist_bit);
+    printf("        [machine] threads=%d odds_per_thread=%llu mod64=%llu bad_builds=%llu"
+           " bad_bits=%llu max_boundary_dist=%llu\n\n",
+           nthreads, (unsigned long long)opt, (unsigned long long)(opt % 64),
+           (unsigned long long)r.bad_builds, (unsigned long long)r.total_bad_bits,
+           (unsigned long long)max_dist);
     return r;
 }
 

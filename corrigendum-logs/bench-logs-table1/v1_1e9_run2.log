@@ -1,0 +1,52 @@
+### binary: build/bin/legacy/goldbach_gpu3 (legacy goldbach_gpu3)
+### cmd: build/bin/legacy/goldbach_gpu3 1000000000 200000000 1000000
+### started: 2026-09-11 10:15:25 UTC
+[Hardware] GPU: NVIDIA GeForce RTX 5090 (32606 MB VRAM)
+Goldbach segmented verifier (Phase 1: GPU, Phase 2: CPU)
+Checking all even n in [4, 1000000000]
+P_SMALL = 1000000, exhaustive CPU fallback for any remainder
+
+Building small primes bitset up to 1000001...
+Built in 13.3683 ms (61 KB)
+
+GPU primes (p <= 1000000): 78498
+
+Small primes in GPU (61 KB)
+Segment buffer: 23 MB
+Verified buffer: 190 MB
+
+  Progress: 200000000 / 499999999 (40%)  Progress: 400000000 / 499999999 (80%)  Progress: 499999999 / 499999999 (100%)
+
+--- Summary ---
+Even numbers checked  : 499999999
+Failures              : 0
+Phase 2 fallbacks     : 0
+P_SMALL               : 1000000
+Total time            : 1250.3 ms
+
+All even numbers up to 1000000000 satisfy Goldbach. ✓
+(All verified by GPU with p <= 1000000)
+	Command being timed: "build/bin/legacy/goldbach_gpu3 1000000000 200000000 1000000"
+	User time (seconds): 1.30
+	System time (seconds): 0.34
+	Percent of CPU this job got: 109%
+	Elapsed (wall clock) time (h:mm:ss or m:ss): 0:01.50
+	Average shared text size (kbytes): 0
+	Average unshared data size (kbytes): 0
+	Average stack size (kbytes): 0
+	Average total size (kbytes): 0
+	Maximum resident set size (kbytes): 339000
+	Average resident set size (kbytes): 0
+	Major (requiring I/O) page faults: 125
+	Minor (reclaiming a frame) page faults: 164037
+	Voluntary context switches: 844
+	Involuntary context switches: 31
+	Swaps: 0
+	File system inputs: 18974
+	File system outputs: 0
+	Socket messages sent: 0
+	Socket messages received: 0
+	Signals delivered: 0
+	Page size (bytes): 4096
+	Exit status: 0
+### exit=0

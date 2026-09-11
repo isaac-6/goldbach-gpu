@@ -29,5 +29,6 @@ Makefile
 .vscode/
 *.swp
 *~
-bench-logs-v201/
+/bench-logs-v201/
+!corrigendum-logs/
 build/

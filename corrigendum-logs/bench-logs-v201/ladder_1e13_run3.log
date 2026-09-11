@@ -1,0 +1,40 @@
+### cmd: build/bin/goldbach 10000000000000 --seg-size=200000000 --p-small=1000000 --batch-size=2000000
+### started: 2026-09-10 10:18:43 UTC
+[Hardware] GPU 0: NVIDIA GeForce RTX 5090 (32606 MB VRAM)
+Building small primes bitset up to 3162279...
+Pre-generating CPU primes up to 100000000...
+Initialization completed in 233.508 ms.
+
+--- Launching Multi-GPU Verifier ---
+Checking range : [4, 10000000000000]
+Total numbers  : 4999999999999
+
+
+--- Verification Complete ---
+All even numbers up to 10000000000000 satisfy Goldbach. ✓
+Total computation time : 3248.05 seconds
+Phase 2 fallbacks      : 0
+	Command being timed: "build/bin/goldbach 10000000000000 --seg-size=200000000 --p-small=1000000 --batch-size=2000000"
+	User time (seconds): 3247.60
+	System time (seconds): 1.68
+	Percent of CPU this job got: 100%
+	Elapsed (wall clock) time (h:mm:ss or m:ss): 54:08.40
+	Average shared text size (kbytes): 0
+	Average unshared data size (kbytes): 0
+	Average stack size (kbytes): 0
+	Average total size (kbytes): 0
+	Maximum resident set size (kbytes): 167336
+	Average resident set size (kbytes): 0
+	Major (requiring I/O) page faults: 130
+	Minor (reclaiming a frame) page faults: 42664
+	Voluntary context switches: 65701
+	Involuntary context switches: 7631
+	Swaps: 0
+	File system inputs: 18974
+	File system outputs: 0
+	Socket messages sent: 0
+	Socket messages received: 0
+	Signals delivered: 0
+	Page size (bytes): 4096
+	Exit status: 0
+### exit=0

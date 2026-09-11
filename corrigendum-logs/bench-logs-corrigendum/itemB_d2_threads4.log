@@ -1,0 +1,25 @@
+### D2 boundary detail, word-alignment fix REVERTED
+### OMP_NUM_THREADS=4, 250 builds per case
+### started: 2026-09-11 11:28:56 UTC
+build_prime_bitset race test (250 builds per case)
+
+  [misaligned] limit=1000000  threads=4  total_odds=499999
+        odds_per_thread=125000  % 64 = 8  -> slice boundaries fall MID-WORD
+        q=750005 bit=375001  reported PRIME, actually COMPOSITE  (bit % odds_per_thread = 1, 1 from a boundary)
+        q=750055 bit=375026  reported PRIME, actually COMPOSITE  (bit % odds_per_thread = 26, 26 from a boundary)
+        q=500015 bit=250006  reported PRIME, actually COMPOSITE  (bit % odds_per_thread = 6, 6 from a boundary)
+        q=500095 bit=250046  reported PRIME, actually COMPOSITE  (bit % odds_per_thread = 46, 46 from a boundary)
+        q=250021 bit=125009  reported PRIME, actually COMPOSITE  (bit % odds_per_thread = 9, 9 from a boundary)
+        q=250097 bit=125047  reported PRIME, actually COMPOSITE  (bit % odds_per_thread = 47, 47 from a boundary)
+        -> 23/250 builds wrong (33 bad bits total)
+        max distance from nearest slice boundary: 51 bit positions  (at q=250105, bit=125051)
+        [machine] threads=4 odds_per_thread=125000 mod64=8 bad_builds=23 bad_bits=33 max_boundary_dist=51
+
+  [aligned (control)] limit=999425  threads=4  total_odds=499712
+        odds_per_thread=124928  % 64 = 0  -> slice boundaries are word-aligned
+        -> 0/250 builds wrong (0 bad bits total)
+        [machine] threads=4 odds_per_thread=124928 mod64=0 bad_builds=0 bad_bits=0 max_boundary_dist=0
+
+TOTAL BAD BUILDS: 23
+FAIL
+### exit=1
