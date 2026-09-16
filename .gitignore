@@ -34,4 +34,7 @@ Makefile
 evidence_prefix.txt
 prof_atomicand.nsys-rep
 prof_atomicand.sqlite
-bench-logs/
+/bench-logs/
+/bench-logs-table1/
+/bench-logs-v201/
+/bench-logs-corrigendum/
