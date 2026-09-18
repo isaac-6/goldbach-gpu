@@ -21,19 +21,36 @@ hardware. **No counterexamples have been found in any computation.**
 
 ---
 
-## Headline result
-The following figure shows total wall‑clock time to verify all even integers up to \(N\) using the three main implementations:
+## Results
 
-- **CPU baseline** (`cpu_goldbach`)
-- **GPU** (`goldbach`)
+This is the corrigendum reference artifact for arXiv:2603.07850: release v2.0.0
+with correctness fixes and no performance work. For current performance see
+[v3.0.0](https://github.com/isaac-6/goldbach-gpu/releases/tag/v3.0.0).
 
-![Performance comparison of CPU, goldbach_gpu3, and goldbach (current)](assets/performance_plot.png)
+RTX 5090, CUDA 13.3, `--seg-size=200000000 --p-small=1000000
+--batch-size=2000000`. Computation time excluding roughly 0.23 s of
+initialisation, which the program reports separately. Mean and sample standard
+deviation with an n-1 denominator. Zero Phase 2 fallbacks throughout.
 
-> **Single GPU** All even integers up to 10¹² verified on a single NVIDIA RTX 5090 in 37 seconds.
-> 
-> **Cloud / HPC:** Verification up to 10¹² in 18.8 seconds with 2x NVIDIA RTX 5090.
+Built with `-DCMAKE_CUDA_ARCHITECTURES=120`. This flag is required: a default
+configure on this branch resolves to sm_75 and runs from JIT-compiled PTX, which
+does not reproduce these figures. Build with:
 
-This is achieved by our multi-GPU, segmented double-sieve verifier with dynamic load balancing, GPU-tiled sieving, and optimized Phase 2 fallbacks. See [Architecture](#architecture) and [Results](#results-summary) below.
+    cmake .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_CUDA_ARCHITECTURES=120
+
+substituting your own device's compute capability.
+
+| Limit | Computation | Runs |
+|---|---|---|
+| 10<sup>10</sup> | 1.060 ± 0.022 s | 5 |
+| 10<sup>11</sup> | 11.28 ± 0.11 s | 5 |
+| 10<sup>12</sup> | 144.95 ± 0.51 s | 5 |
+| 10<sup>13</sup> | 3246 ± 4 s | 3 |
+
+Raw logs are in `corrigendum-logs/`.
+
+Figures published for v2.0.0 were measured with the defective build and are
+withdrawn. See the corrigendum.
 
 ---
 
@@ -96,10 +113,15 @@ Full benchmark log: [RESULTS.md](RESULTS.md)
 |------|-------|----------------|------------|----------|
 | `cpu_goldbach` (CPU) | 10⁹ | 499,999,999 | 19,183.7 ms | 0 |
 | `goldbach_gpu3` | 10⁹ | 499,999,999 | 1,867.7 ms | 0 |
-| `goldbach` | 10⁹ | 499,999,999 | 141.0 ms | 0 |
-| `goldbach` | 10¹² | 499,999,999,999 | 37,440 ms | 0 |
+| `goldbach` | 10⁹ | 499,999,999 | 206 ± 17 ms | 0 |
+| `goldbach` | 10¹² | 499,999,999,999 | 144.95 ± 0.51 s | 0 |
 
-GPU speedup over CPU baseline: **136× total at 10⁹**.
+The `goldbach` rows are corrected figures from this release, sm_120, five runs
+each. The `cpu_goldbach` and `goldbach_gpu3` rows are as previously published
+and are unaffected by the defects, except that `goldbach_gpu3` links
+`build_prime_bitset` and so picks up the second fix when rebuilt here. The two
+sets were measured on different machines and should not be divided into one
+another; for a same-machine comparison see `corrigendum-logs/bench-logs-table1/`.
 
 ### Single number verification
 
@@ -116,9 +138,13 @@ GPU speedup over CPU baseline: **136× total at 10⁹**.
 
 ```bash
 mkdir build && cd build
-cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_LEGACY=OFF
+cmake .. -DCMAKE_BUILD_TYPE=Release -DBUILD_LEGACY=OFF -DCMAKE_CUDA_ARCHITECTURES=120
 cmake --build . -j$(nproc)
 ```
+
+Substitute your own device's compute capability for `120`. Pin it explicitly: a
+default configure on this branch resolves to sm_75 and runs from JIT-compiled
+PTX, which does not reproduce the figures above.
 
 **Dependencies:** CUDA toolkit, GMP, OpenMP.
 
@@ -225,7 +251,7 @@ All range verification results were produced on the following platform:
 | **OpenMP** | 4.5 |
 | **GMP** | 6.3.0+dfsg-2ubuntu6.1 |
 
-All timings are wall‑clock time. All configurations are recorded exactly as run so results are fully reproducible.
+All timings are wall‑clock time. Command lines, environments and raw output for the corrected figures are in `corrigendum-logs/`.
 
 ---
 
@@ -234,7 +260,6 @@ All timings are wall‑clock time. All configurations are recorded exactly as ru
 ```text
 - `src/`
   - `goldbach.cu`        : Multi-GPU range verifier (Flagship).
-  - `goldbach_gpu5a.cu`  : (experimental for testing new features).
   - `big_check.cpp`      : Arbitrary precision checker (GMP + OpenMP).
   - `single_check.cu`    : 64-bit deterministic Miller-Rabin checker.
   - `cpu_goldbach.cpp`   : Sequential CPU baseline oracle.
@@ -253,20 +278,25 @@ All timings are wall‑clock time. All configurations are recorded exactly as ru
 
 ## How to cite
 
-If you use this software in academic work, please cite the archived release:
-```
-Llorente-Saguer, I. (2026). GoldbachGPU (v1.1.0) [Software]. Zenodo.
-https://doi.org/10.5281/zenodo.18837081
-```
-For the latest version, see the concept DOI:
-https://doi.org/10.5281/zenodo.18786328
+This release is the reference artifact for the corrigendum to arXiv:2603.07850.
 
+For the software, cite the archived release. `CITATION.cff` carries the current
+metadata, and the Zenodo page lists a version DOI for each individual tag:
 
-If you reference the scientific description of the method, please cite the preprint
-```
-Llorente-Saguer, I. (2026). GoldbachGPU: High‑performance Goldbach verification on GPUs.
-arXiv:2603.02621.
-```
+    Llorente-Saguer, I. (2026). GoldbachGPU [Software]. Zenodo.
+    https://doi.org/10.5281/zenodo.18786328
+
+That is the concept DOI and resolves to the most recently published version. To
+cite the exact artifact behind the corrigendum's figures, use the version DOI
+shown on the Zenodo record for tag v2.0.2.
+
+For the method, cite the paper this release accompanies:
+
+    Llorente-Saguer, I. (2026). A Lock-Free, Fully GPU-Resident Architecture for
+    the Verification of Goldbach's Conjecture. arXiv:2603.07850.
+
+The earlier segmented design and the arbitrary-precision `big_check` tool are
+described in arXiv:2603.02621.
 
 ---
 

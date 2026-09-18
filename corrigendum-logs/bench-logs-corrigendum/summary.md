@@ -178,11 +178,10 @@ figures measured previously.
 | 1e11 | 3.7961 s | 0.0063 | 11.2770 s | 2.97x |
 | 1e12 | 42.3643 s | 0.0298 | 144.9510 s | 3.42x |
 
-The atomicAnd fix costs 2.4x to 3.4x, and the cost grows with N. This is the
-measured answer to why the reported figures changed: the published numbers came
-from a sieve that was fast because it was dropping work.
+The correction replaces an unsynchronised read-modify-write with atomicAnd. The
+measured cost is 2.4x to 3.4x and grows with N. The mechanism behind that cost
+was not isolated.
 
 THESE TIMINGS DO NOT MEASURE A VALID COMPUTATION. The unfixed binary leaves
-2.73% of composites marked prime (Item A), so it is timing a kernel that skips
-work. They explain the change in reported figures; they are not a performance
-baseline.
+2.73% of composites marked prime (Item A). These figures account for the change
+in the reported timings; they are not a performance baseline.

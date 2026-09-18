@@ -1,0 +1,98 @@
+### cmd: for i in 1 2 3 4 5; do ./bin/goldbach 1000000 --seg-size=200000000 --p-small=1000000 --batch-size=2000000; done
+### started: 2026-09-15T23:41:10Z
+### binary: v2.0.1, commit 536ca1b
+### build: cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_CUDA_ARCHITECTURES=120
+###        (goldbach.sm_120.cubin, matching bench-logs-v201/summary.md)
+###
+### Total computation time here is an upper bound on the setup carried
+### inside the program's own timer: CUDA context creation, six cudaMalloc
+### calls, the initial host-to-device copies, and one trivial segment.
+### Computation: 0.166859, 0.122390, 0.122219, 0.122451, 0.122062 s
+###   mean 0.1312 s, sample sd (n-1) 0.0199 s
+### The same five runs from a default (sm_75 JIT) build gave
+###   mean 0.1396 s, sample sd (n-1) 0.0132 s
+
+### run 1
+[Hardware] GPU 0: NVIDIA GeForce RTX 5090 (32606 MB VRAM)
+Building small primes bitset up to 1000001...
+Pre-generating CPU primes up to 100000000...
+Initialization completed in 232.408 ms.
+
+--- Launching Multi-GPU Verifier ---
+Checking range : [4, 1000000]
+Total numbers  : 499999
+
+
+--- Verification Complete ---
+All even numbers up to 1000000 satisfy Goldbach. ✓
+Total computation time : 0.166859 seconds
+Phase 2 fallbacks      : 0
+### exit: 0
+
+### run 2
+[Hardware] GPU 0: NVIDIA GeForce RTX 5090 (32606 MB VRAM)
+Building small primes bitset up to 1000001...
+Pre-generating CPU primes up to 100000000...
+Initialization completed in 231.186 ms.
+
+--- Launching Multi-GPU Verifier ---
+Checking range : [4, 1000000]
+Total numbers  : 499999
+
+
+--- Verification Complete ---
+All even numbers up to 1000000 satisfy Goldbach. ✓
+Total computation time : 0.12239 seconds
+Phase 2 fallbacks      : 0
+### exit: 0
+
+### run 3
+[Hardware] GPU 0: NVIDIA GeForce RTX 5090 (32606 MB VRAM)
+Building small primes bitset up to 1000001...
+Pre-generating CPU primes up to 100000000...
+Initialization completed in 226.032 ms.
+
+--- Launching Multi-GPU Verifier ---
+Checking range : [4, 1000000]
+Total numbers  : 499999
+
+
+--- Verification Complete ---
+All even numbers up to 1000000 satisfy Goldbach. ✓
+Total computation time : 0.122219 seconds
+Phase 2 fallbacks      : 0
+### exit: 0
+
+### run 4
+[Hardware] GPU 0: NVIDIA GeForce RTX 5090 (32606 MB VRAM)
+Building small primes bitset up to 1000001...
+Pre-generating CPU primes up to 100000000...
+Initialization completed in 231.265 ms.
+
+--- Launching Multi-GPU Verifier ---
+Checking range : [4, 1000000]
+Total numbers  : 499999
+
+
+--- Verification Complete ---
+All even numbers up to 1000000 satisfy Goldbach. ✓
+Total computation time : 0.122451 seconds
+Phase 2 fallbacks      : 0
+### exit: 0
+
+### run 5
+[Hardware] GPU 0: NVIDIA GeForce RTX 5090 (32606 MB VRAM)
+Building small primes bitset up to 1000001...
+Pre-generating CPU primes up to 100000000...
+Initialization completed in 229.921 ms.
+
+--- Launching Multi-GPU Verifier ---
+Checking range : [4, 1000000]
+Total numbers  : 499999
+
+
+--- Verification Complete ---
+All even numbers up to 1000000 satisfy Goldbach. ✓
+Total computation time : 0.122062 seconds
+Phase 2 fallbacks      : 0
+### exit: 0

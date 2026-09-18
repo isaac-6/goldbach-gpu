@@ -1,0 +1,485 @@
+### cmd: T1 ./bin/goldbach 10000000 --seg-size=200000000 --p-small=100 --batch-size=2000000
+###      T2 ./bin/goldbach 100000000 --seg-size=200000000 --p-small=1000 --batch-size=2000000
+###      run against an sm_120 build and a default (sm_75) build of the same tree
+### started: 2026-09-16T14:23:38Z
+### binary: release/v2.0.2 working tree (v2.0.1 + the D3 guard and doc changes)
+###
+### Purpose: Phase 2 fallbacks is a deterministic integer that depends only on
+### sieve correctness. A sieve leaving composites marked prime accepts false
+### partitions and reports FEWER fallbacks. The two builds must agree exactly.
+###
+### cuobjdump --list-elf build-120/bin/goldbach
+###   ELF file    1: goldbach.1.sm_120.cubin
+### cuobjdump --list-elf build-default/bin/goldbach
+###   ELF file    1: goldbach.1.sm_75.cubin
+###   (build-default was configured with a plain -DCMAKE_BUILD_TYPE=Release;
+###    CMAKE_CUDA_ARCHITECTURES resolved to 75 on this sm_120 device)
+
+================ build-120 (sm_120) ================
+---- T1: LIMIT=10000000 --p-small=100 ----
+-- run 1 --
+
+[!] WARNING: P_SMALL = 100 is very small.
+    This may cause excessive Phase 2 fallbacks.
+    Recommended: P_SMALL >= 10^7 for numbers > 10^12
+                 P_SMALL >= 10^8 for numbers > 10^18
+
+[Hardware] GPU 0: NVIDIA GeForce RTX 5090 (32606 MB VRAM)
+Building small primes bitset up to 3163...
+Pre-generating CPU primes up to 100000000...
+Initialization completed in 231.845 ms.
+
+--- Launching Multi-GPU Verifier ---
+Checking range : [4, 10000000]
+Total numbers  : 4999999
+
+
+--- Verification Complete ---
+All even numbers up to 10000000 satisfy Goldbach. ✓
+Total computation time : 0.248477 seconds
+Phase 2 fallbacks      : 186899
+-- exit: 0 --
+-- run 2 --
+
+[!] WARNING: P_SMALL = 100 is very small.
+    This may cause excessive Phase 2 fallbacks.
+    Recommended: P_SMALL >= 10^7 for numbers > 10^12
+                 P_SMALL >= 10^8 for numbers > 10^18
+
+[Hardware] GPU 0: NVIDIA GeForce RTX 5090 (32606 MB VRAM)
+Building small primes bitset up to 3163...
+Pre-generating CPU primes up to 100000000...
+Initialization completed in 234.362 ms.
+
+--- Launching Multi-GPU Verifier ---
+Checking range : [4, 10000000]
+Total numbers  : 4999999
+
+
+--- Verification Complete ---
+All even numbers up to 10000000 satisfy Goldbach. ✓
+Total computation time : 0.205152 seconds
+Phase 2 fallbacks      : 186899
+-- exit: 0 --
+-- run 3 --
+
+[!] WARNING: P_SMALL = 100 is very small.
+    This may cause excessive Phase 2 fallbacks.
+    Recommended: P_SMALL >= 10^7 for numbers > 10^12
+                 P_SMALL >= 10^8 for numbers > 10^18
+
+[Hardware] GPU 0: NVIDIA GeForce RTX 5090 (32606 MB VRAM)
+Building small primes bitset up to 3163...
+Pre-generating CPU primes up to 100000000...
+Initialization completed in 237.604 ms.
+
+--- Launching Multi-GPU Verifier ---
+Checking range : [4, 10000000]
+Total numbers  : 4999999
+
+
+--- Verification Complete ---
+All even numbers up to 10000000 satisfy Goldbach. ✓
+Total computation time : 0.21635 seconds
+Phase 2 fallbacks      : 186899
+-- exit: 0 --
+
+---- T2: LIMIT=100000000 --p-small=1000 ----
+-- run 1 --
+
+[!] WARNING: P_SMALL = 1000 is very small.
+    This may cause excessive Phase 2 fallbacks.
+    Recommended: P_SMALL >= 10^7 for numbers > 10^12
+                 P_SMALL >= 10^8 for numbers > 10^18
+
+[Hardware] GPU 0: NVIDIA GeForce RTX 5090 (32606 MB VRAM)
+Building small primes bitset up to 10001...
+Pre-generating CPU primes up to 100000000...
+Initialization completed in 242.024 ms.
+
+--- Launching Multi-GPU Verifier ---
+Checking range : [4, 100000000]
+Total numbers  : 49999999
+
+
+--- Verification Complete ---
+All even numbers up to 100000000 satisfy Goldbach. ✓
+Total computation time : 0.200134 seconds
+Phase 2 fallbacks      : 3
+-- exit: 0 --
+-- run 2 --
+
+[!] WARNING: P_SMALL = 1000 is very small.
+    This may cause excessive Phase 2 fallbacks.
+    Recommended: P_SMALL >= 10^7 for numbers > 10^12
+                 P_SMALL >= 10^8 for numbers > 10^18
+
+[Hardware] GPU 0: NVIDIA GeForce RTX 5090 (32606 MB VRAM)
+Building small primes bitset up to 10001...
+Pre-generating CPU primes up to 100000000...
+Initialization completed in 241.678 ms.
+
+--- Launching Multi-GPU Verifier ---
+Checking range : [4, 100000000]
+Total numbers  : 49999999
+
+
+--- Verification Complete ---
+All even numbers up to 100000000 satisfy Goldbach. ✓
+Total computation time : 0.150273 seconds
+Phase 2 fallbacks      : 3
+-- exit: 0 --
+-- run 3 --
+
+[!] WARNING: P_SMALL = 1000 is very small.
+    This may cause excessive Phase 2 fallbacks.
+    Recommended: P_SMALL >= 10^7 for numbers > 10^12
+                 P_SMALL >= 10^8 for numbers > 10^18
+
+[Hardware] GPU 0: NVIDIA GeForce RTX 5090 (32606 MB VRAM)
+Building small primes bitset up to 10001...
+Pre-generating CPU primes up to 100000000...
+Initialization completed in 226.103 ms.
+
+--- Launching Multi-GPU Verifier ---
+Checking range : [4, 100000000]
+Total numbers  : 49999999
+
+
+--- Verification Complete ---
+All even numbers up to 100000000 satisfy Goldbach. ✓
+Total computation time : 0.16885 seconds
+Phase 2 fallbacks      : 3
+-- exit: 0 --
+
+================ build-default (sm_75) ================
+---- T1: LIMIT=10000000 --p-small=100 ----
+-- run 1 --
+
+[!] WARNING: P_SMALL = 100 is very small.
+    This may cause excessive Phase 2 fallbacks.
+    Recommended: P_SMALL >= 10^7 for numbers > 10^12
+                 P_SMALL >= 10^8 for numbers > 10^18
+
+[Hardware] GPU 0: NVIDIA GeForce RTX 5090 (32606 MB VRAM)
+Building small primes bitset up to 3163...
+Pre-generating CPU primes up to 100000000...
+Initialization completed in 215.127 ms.
+
+--- Launching Multi-GPU Verifier ---
+Checking range : [4, 10000000]
+Total numbers  : 4999999
+
+
+--- Verification Complete ---
+All even numbers up to 10000000 satisfy Goldbach. ✓
+Total computation time : 0.23537 seconds
+Phase 2 fallbacks      : 186899
+-- exit: 0 --
+-- run 2 --
+
+[!] WARNING: P_SMALL = 100 is very small.
+    This may cause excessive Phase 2 fallbacks.
+    Recommended: P_SMALL >= 10^7 for numbers > 10^12
+                 P_SMALL >= 10^8 for numbers > 10^18
+
+[Hardware] GPU 0: NVIDIA GeForce RTX 5090 (32606 MB VRAM)
+Building small primes bitset up to 3163...
+Pre-generating CPU primes up to 100000000...
+Initialization completed in 240.852 ms.
+
+--- Launching Multi-GPU Verifier ---
+Checking range : [4, 10000000]
+Total numbers  : 4999999
+
+
+--- Verification Complete ---
+All even numbers up to 10000000 satisfy Goldbach. ✓
+Total computation time : 0.236893 seconds
+Phase 2 fallbacks      : 186899
+-- exit: 0 --
+-- run 3 --
+
+[!] WARNING: P_SMALL = 100 is very small.
+    This may cause excessive Phase 2 fallbacks.
+    Recommended: P_SMALL >= 10^7 for numbers > 10^12
+                 P_SMALL >= 10^8 for numbers > 10^18
+
+[Hardware] GPU 0: NVIDIA GeForce RTX 5090 (32606 MB VRAM)
+Building small primes bitset up to 3163...
+Pre-generating CPU primes up to 100000000...
+Initialization completed in 229.69 ms.
+
+--- Launching Multi-GPU Verifier ---
+Checking range : [4, 10000000]
+Total numbers  : 4999999
+
+
+--- Verification Complete ---
+All even numbers up to 10000000 satisfy Goldbach. ✓
+Total computation time : 0.22324 seconds
+Phase 2 fallbacks      : 186899
+-- exit: 0 --
+
+---- T2: LIMIT=100000000 --p-small=1000 ----
+-- run 1 --
+
+[!] WARNING: P_SMALL = 1000 is very small.
+    This may cause excessive Phase 2 fallbacks.
+    Recommended: P_SMALL >= 10^7 for numbers > 10^12
+                 P_SMALL >= 10^8 for numbers > 10^18
+
+[Hardware] GPU 0: NVIDIA GeForce RTX 5090 (32606 MB VRAM)
+Building small primes bitset up to 10001...
+Pre-generating CPU primes up to 100000000...
+Initialization completed in 247.519 ms.
+
+--- Launching Multi-GPU Verifier ---
+Checking range : [4, 100000000]
+Total numbers  : 49999999
+
+
+--- Verification Complete ---
+All even numbers up to 100000000 satisfy Goldbach. ✓
+Total computation time : 0.176651 seconds
+Phase 2 fallbacks      : 3
+-- exit: 0 --
+-- run 2 --
+
+[!] WARNING: P_SMALL = 1000 is very small.
+    This may cause excessive Phase 2 fallbacks.
+    Recommended: P_SMALL >= 10^7 for numbers > 10^12
+                 P_SMALL >= 10^8 for numbers > 10^18
+
+[Hardware] GPU 0: NVIDIA GeForce RTX 5090 (32606 MB VRAM)
+Building small primes bitset up to 10001...
+Pre-generating CPU primes up to 100000000...
+Initialization completed in 229.063 ms.
+
+--- Launching Multi-GPU Verifier ---
+Checking range : [4, 100000000]
+Total numbers  : 49999999
+
+
+--- Verification Complete ---
+All even numbers up to 100000000 satisfy Goldbach. ✓
+Total computation time : 0.166656 seconds
+Phase 2 fallbacks      : 3
+-- exit: 0 --
+-- run 3 --
+
+[!] WARNING: P_SMALL = 1000 is very small.
+    This may cause excessive Phase 2 fallbacks.
+    Recommended: P_SMALL >= 10^7 for numbers > 10^12
+                 P_SMALL >= 10^8 for numbers > 10^18
+
+[Hardware] GPU 0: NVIDIA GeForce RTX 5090 (32606 MB VRAM)
+Building small primes bitset up to 10001...
+Pre-generating CPU primes up to 100000000...
+Initialization completed in 225.348 ms.
+
+--- Launching Multi-GPU Verifier ---
+Checking range : [4, 100000000]
+Total numbers  : 49999999
+
+
+--- Verification Complete ---
+All even numbers up to 100000000 satisfy Goldbach. ✓
+Total computation time : 0.196558 seconds
+Phase 2 fallbacks      : 3
+-- exit: 0 --
+
+================ resource usage (cuobjdump -res-usage) ================
+--- build-120 ---
+ Function _Z22goldbach_phase1_kernelPKmmS0_mmmmS0_mPh:
+  REG:52 STACK:96 SHARED:1024 LOCAL:0 CONSTANT[0]:976 TEXTURE:0 SURFACE:0 SAMPLER:0
+ Function _Z26tiled_sieve_segment_kernelmmPKmmPm:
+  REG:34 STACK:0 SHARED:1024 LOCAL:0 CONSTANT[0]:936 TEXTURE:0 SURFACE:0 SAMPLER:0
+ Function _Z23count_unverified_kernelPKhmPj:
+  REG:8 STACK:0 SHARED:1024 LOCAL:0 CONSTANT[0]:920 TEXTURE:0 SURFACE:0 SAMPLER:0
+--- build-default ---
+ Function _Z22goldbach_phase1_kernelPKmmS0_mmmmS0_mPh:
+  REG:43 STACK:96 SHARED:0 LOCAL:0 CONSTANT[2]:8 CONSTANT[0]:432 TEXTURE:0 SURFACE:0 SAMPLER:0
+ Function _Z26tiled_sieve_segment_kernelmmPKmmPm:
+  REG:38 STACK:0 SHARED:0 LOCAL:0 CONSTANT[0]:392 TEXTURE:0 SURFACE:0 SAMPLER:0
+ Function _Z23count_unverified_kernelPKhmPj:
+  REG:6 STACK:0 SHARED:0 LOCAL:0 CONSTANT[0]:376 TEXTURE:0 SURFACE:0 SAMPLER:0
+
+================ independent cross-check ================
+$ ./build/bin/cpu_goldbach 10000000
+--- Summary ---
+Even numbers checked : 4999999
+Failures found       : 0
+Sieve time           : 10.1491 ms
+Goldbach check time  : 59.0767 ms
+Total time           : 69.2258 ms
+
+All even numbers up to 10000000 satisfy Goldbach. ✓
+
+================================================================
+### T3: the differential in the ladder's sieve regime
+### added: 2026-09-16T18:21:05Z
+###
+### T1 and T2 above could not reach the regime where the timing
+### difference appears: their small_high is 3,163 and 10,001, so the sieve
+### rescans only a few hundred base primes per tile. T3 uses a high limit
+### with a low --p-small, giving the full-size base-prime list and frequent
+### Phase 1 failure at once.
+###
+### cmd: ./bin/goldbach 1000040000000 --start=1000000000000 \
+###          --seg-size=200000000 --p-small=1000 --batch-size=2000000
+###
+### 2x10^7 even numbers near 10^12. Confirmed from the run:
+###   small_high     = 1000021  ("Building small primes bitset up to 1000021")
+###   base primes    = 78,499 rescanned per tile (the ladder rescans 78,498)
+###   candidates     = 168 primes <= 1000
+###
+### Three runs per build.
+
+================ build-120 (sm_120) ================
+-- run 1 --
+
+[!] WARNING: P_SMALL = 1000 is very small.
+    This may cause excessive Phase 2 fallbacks.
+    Recommended: P_SMALL >= 10^7 for numbers > 10^12
+                 P_SMALL >= 10^8 for numbers > 10^18
+
+[Hardware] GPU 0: NVIDIA GeForce RTX 5090 (32606 MB VRAM)
+Building small primes bitset up to 1000021...
+Pre-generating CPU primes up to 100000000...
+Initialization completed in 291.963 ms.
+
+--- Launching Multi-GPU Verifier ---
+Checking range : [1000000000000, 1000040000000]
+Total numbers  : 20000001
+
+
+--- Verification Complete ---
+All even numbers up to 1000040000000 satisfy Goldbach. ✓
+Total computation time : 0.215972 seconds
+Phase 2 fallbacks      : 894
+-- exit: 0 --
+-- run 2 --
+
+[!] WARNING: P_SMALL = 1000 is very small.
+    This may cause excessive Phase 2 fallbacks.
+    Recommended: P_SMALL >= 10^7 for numbers > 10^12
+                 P_SMALL >= 10^8 for numbers > 10^18
+
+[Hardware] GPU 0: NVIDIA GeForce RTX 5090 (32606 MB VRAM)
+Building small primes bitset up to 1000021...
+Pre-generating CPU primes up to 100000000...
+Initialization completed in 245.892 ms.
+
+--- Launching Multi-GPU Verifier ---
+Checking range : [1000000000000, 1000040000000]
+Total numbers  : 20000001
+
+
+--- Verification Complete ---
+All even numbers up to 1000040000000 satisfy Goldbach. ✓
+Total computation time : 0.177142 seconds
+Phase 2 fallbacks      : 894
+-- exit: 0 --
+-- run 3 --
+
+[!] WARNING: P_SMALL = 1000 is very small.
+    This may cause excessive Phase 2 fallbacks.
+    Recommended: P_SMALL >= 10^7 for numbers > 10^12
+                 P_SMALL >= 10^8 for numbers > 10^18
+
+[Hardware] GPU 0: NVIDIA GeForce RTX 5090 (32606 MB VRAM)
+Building small primes bitset up to 1000021...
+Pre-generating CPU primes up to 100000000...
+Initialization completed in 261.418 ms.
+
+--- Launching Multi-GPU Verifier ---
+Checking range : [1000000000000, 1000040000000]
+Total numbers  : 20000001
+
+
+--- Verification Complete ---
+All even numbers up to 1000040000000 satisfy Goldbach. ✓
+Total computation time : 0.19877 seconds
+Phase 2 fallbacks      : 894
+-- exit: 0 --
+
+================ build-default (sm_75) ================
+-- run 1 --
+
+[!] WARNING: P_SMALL = 1000 is very small.
+    This may cause excessive Phase 2 fallbacks.
+    Recommended: P_SMALL >= 10^7 for numbers > 10^12
+                 P_SMALL >= 10^8 for numbers > 10^18
+
+[Hardware] GPU 0: NVIDIA GeForce RTX 5090 (32606 MB VRAM)
+Building small primes bitset up to 1000021...
+Pre-generating CPU primes up to 100000000...
+Initialization completed in 239.557 ms.
+
+--- Launching Multi-GPU Verifier ---
+Checking range : [1000000000000, 1000040000000]
+Total numbers  : 20000001
+
+
+--- Verification Complete ---
+All even numbers up to 1000040000000 satisfy Goldbach. ✓
+Total computation time : 0.188618 seconds
+Phase 2 fallbacks      : 894
+-- exit: 0 --
+-- run 2 --
+
+[!] WARNING: P_SMALL = 1000 is very small.
+    This may cause excessive Phase 2 fallbacks.
+    Recommended: P_SMALL >= 10^7 for numbers > 10^12
+                 P_SMALL >= 10^8 for numbers > 10^18
+
+[Hardware] GPU 0: NVIDIA GeForce RTX 5090 (32606 MB VRAM)
+Building small primes bitset up to 1000021...
+Pre-generating CPU primes up to 100000000...
+Initialization completed in 225.387 ms.
+
+--- Launching Multi-GPU Verifier ---
+Checking range : [1000000000000, 1000040000000]
+Total numbers  : 20000001
+
+
+--- Verification Complete ---
+All even numbers up to 1000040000000 satisfy Goldbach. ✓
+Total computation time : 0.174722 seconds
+Phase 2 fallbacks      : 894
+-- exit: 0 --
+-- run 3 --
+
+[!] WARNING: P_SMALL = 1000 is very small.
+    This may cause excessive Phase 2 fallbacks.
+    Recommended: P_SMALL >= 10^7 for numbers > 10^12
+                 P_SMALL >= 10^8 for numbers > 10^18
+
+[Hardware] GPU 0: NVIDIA GeForce RTX 5090 (32606 MB VRAM)
+Building small primes bitset up to 1000021...
+Pre-generating CPU primes up to 100000000...
+Initialization completed in 244.783 ms.
+
+--- Launching Multi-GPU Verifier ---
+Checking range : [1000000000000, 1000040000000]
+Total numbers  : 20000001
+
+
+--- Verification Complete ---
+All even numbers up to 1000040000000 satisfy Goldbach. ✓
+Total computation time : 0.175777 seconds
+Phase 2 fallbacks      : 894
+-- exit: 0 --
+
+================ T3 result ================
+Phase 2 fallbacks: 894 on every one of the six runs, both architectures.
+The two sieves agree in the regime the ladder measures. Correctness question
+closed: the timing difference between the builds is code generation.
+
+Timings (s). The ~0.13 s setup floor measured in bench-logs-v201/setup_cost.log
+dominates at this size, so these bound the per-work ratio only loosely:
+  sm_120 : 0.410942 (cold), 0.193306, 0.182212
+  sm_75  : 0.179448, 0.170709, 0.178768
+The 1.9x seen at 10^10 does not reproduce here even with the full base-prime
+list, so it is a function of total sieve work, not of the list size alone.

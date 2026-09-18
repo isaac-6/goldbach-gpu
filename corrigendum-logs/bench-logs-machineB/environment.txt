@@ -1,0 +1,10 @@
+4x NVIDIA GeForce RTX 5090, driver 575.57.08, compute_cap 12.0, 32607 MiB each
+CUDA 12.8, V12.8.93
+AMD EPYC 9654 96-Core, 192 threads
+Ubuntu 24.04.3 LTS, glibc 2.39-0ubuntu8.6, GCC 13.3.0, CMake 3.28.3
+Commit: cca9e71, git describe: v2.0.1
+ELF: goldbach.sm_120.cubin
+test_bitset_race: PASS
+
+Transcribed from the session terminal. The pod was ephemeral and the session was
+not captured to file. Only the 1- and 2-GPU configurations were exercised.

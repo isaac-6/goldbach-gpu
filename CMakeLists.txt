@@ -50,13 +50,6 @@ target_link_libraries(goldbach_lib PUBLIC OpenMP::OpenMP_CXX)
 
 # --- Executables ---
 
-# Multi-GPU 5a (experimental)
-add_executable(goldbach_gpu5a src/goldbach_gpu5a.cu)
-target_link_libraries(goldbach_gpu5a PRIVATE goldbach_lib)
-set_target_properties(goldbach_gpu5a PROPERTIES
-    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
-
-
 # Multi-GPU (Main Function)
 add_executable(goldbach src/goldbach.cu)
 target_link_libraries(goldbach PRIVATE goldbach_lib)

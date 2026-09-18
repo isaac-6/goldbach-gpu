@@ -43,10 +43,8 @@ Five runs each, sample standard deviation (n-1). Zero Phase 2 fallbacks in all
 
 Almost entirely the v2 side. The published table implies a v2 figure of
 18056.5 / 45.6 = 396.0 ms at 10^10; the corrected v2.0.1 measures 1031.2 ms,
-2.6x slower. That is the cost of the `atomicAnd` fix in
-`tiled_sieve_segment_kernel`: the defect made the sieve faster by losing
-concurrent updates, so the published figure was partly measuring a kernel that
-was not doing all its work.
+2.6x slower. That is the cost of the correction in `tiled_sieve_segment_kernel`,
+which replaces an unsynchronised read-modify-write with atomicAnd.
 
 The v1 side moved far less: 13557.0 ms here against 18056.5 ms published,
 -24.9%, consistent with different hardware.

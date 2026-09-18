@@ -1,0 +1,23 @@
+### cmd: ./bin/goldbach 9000000002 --seg-size=4500000000 --p-small=1000000 --batch-size=2000000
+### started: 2026-09-15T23:40:41Z
+### binary: v2.0.1, commit 536ca1b
+### build: cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_CUDA_ARCHITECTURES=120
+###        (goldbach.sm_120.cubin, matching bench-logs-v201/summary.md)
+### note: the same verdict was obtained from a default build, where
+###       CMAKE_CUDA_ARCHITECTURES=native resolves to 75 on this sm_120
+###       device and the kernels run from JIT-compiled PTX.
+[Hardware] GPU 0: NVIDIA GeForce RTX 5090 (32606 MB VRAM)
+Building small primes bitset up to 1000001...
+Pre-generating CPU primes up to 100000000...
+Initialization completed in 228.875 ms.
+
+--- Launching Multi-GPU Verifier ---
+Checking range : [4, 9000000002]
+Total numbers  : 4500000000
+
+
+--- Verification Complete ---
+All even numbers up to 9000000002 satisfy Goldbach. ✓
+Total computation time : 1.09369 seconds
+Phase 2 fallbacks      : 0
+### exit: 0

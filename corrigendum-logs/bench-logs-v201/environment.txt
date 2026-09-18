@@ -1,0 +1,13 @@
+1x NVIDIA GeForce RTX 5090, driver 610.88, compute_cap 12.0, 32607 MiB
+CUDA 13.3, V13.3.73
+AMD Ryzen 7 9800X3D 8-Core, 16 threads
+Ubuntu 26.04 LTS (WSL2, kernel 6.18.33.2-microsoft-standard-WSL2),
+  glibc 2.43-2ubuntu2.4, GCC 15.2.0, CMake 4.2.3
+Commit: cca9e71, git describe: v2.0.0-1-gcca9e71 (branch release/v2.0.1)
+ELF: goldbach.sm_120.cubin
+test_bitset_race: PASS at 4, 8 and 16 threads
+
+Built with -DCMAKE_CUDA_ARCHITECTURES=120. This must be passed explicitly: the
+CMakeLists of this release sets CMAKE_CUDA_ARCHITECTURES to "native", which
+resolves to 75 on this sm_120 device, and the resulting binary runs from
+JIT-compiled PTX. v3.0.0 adds a configure-time check for this.

@@ -1,5 +1,12 @@
 # Goldbach Verification Results Log
 
+> **This file is a historical record, not a statement of current performance.**
+> Entries are kept as measured at the time. Figures produced by release v2.0.0
+> were measured with a build containing two concurrency defects in the sieve and
+> are withdrawn as performance figures; see the corrigendum to arXiv:2603.07850
+> and `corrigendum-logs/` for corrected measurements. Sections affected are
+> marked individually below.
+
 All range verification results were produced on the following platform:
 
 | Component | Specification |
@@ -39,6 +46,12 @@ Method: Byte array prime table (1 byte per number) + GPU kernel, one thread per 
 SEG_SIZE = 200,000,000
 P_SMALL  = 1,000,000
 P_BATCH  = 2,000,000
+
+> **Superseded.** The `goldbach` (v2) figures in this section were measured with
+> release v2.0.0, which contained two concurrency defects in the sieve. They are
+> withdrawn as performance figures and are kept here only as a record of what
+> was measured at the time. Corrected figures are in `corrigendum-logs/` and in
+> the corrigendum to arXiv:2603.07850.
 
 | Limit | Even n checked | Total | Failures |
 |-------|----------------|-------|----------|

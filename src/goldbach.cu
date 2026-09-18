@@ -1,5 +1,5 @@
 // goldbach.cu
-// v2.0.0 -- 2026-03-05
+// v2.0.2 -- 2026-09-18
 //
 // GPU Goldbach range verifier
 // This function gets updated with the best version of the GPU code.
@@ -38,13 +38,15 @@
 //   - Exception-safe resource cleanup
 //
 // PERFORMANCE CHARACTERISTICS:
-//   - Phase 1: 10^12 in 36.5 seconds on RTX 5090. With 2x 5090, it took 18.8 seconds.
 //   - Phase 2: never reached on tested inputs due to effective Phase 1 filtering
-//   - Memory: ~200 MB with  --seg-size=200000000 --p-small=1000000 --batch-size=2000000
+//   - Memory: ~573 MiB with --seg-size=200000000 --p-small=1000000
+//     --batch-size=2000000, including the CUDA context
+//   - Corrected timings: see corrigendum-logs/
 //
 // RANGE:
-//   This implementation is mathematically sound for
-//   verification from 4 to 1.8 * 10^19 (limited by time).
+//   64-bit operands throughout, so the ceiling is 2^64. See the corrigendum to
+//   arXiv:2603.07850 for the correctness defects present in v2.0.0 and the
+//   --seg-size limit imposed here.
 
 #include <cuda_runtime.h>
 #include <cstdint>
@@ -515,6 +517,23 @@ void validate_hardware_and_limits(int use_gpus, uint64_t SEG_SIZE, uint64_t P_SM
     uint64_t seg_bytes    = seg_words * sizeof(uint64_t);
 
     uint64_t total_required = verified_bytes + p_batch_bytes + seg_bytes + small_bytes + VRAM_SAFETY_MARGIN_BYTES;
+
+    // D3: kernels compute their global index as
+    // blockIdx.x * blockDim.x + threadIdx.x. Both operands are unsigned int, so
+    // the product is evaluated in 32 bits and wraps past 2^32 threads whatever
+    // the destination type. goldbach_phase1_kernel and count_unverified_kernel
+    // wrap identically, so even numbers at offsets at or above 2^32 within a
+    // segment would be neither verified nor counted, and the program would
+    // report success. Reject the configuration rather than allow that. The
+    // indexing itself is corrected in v3.0.0.
+    if (SEG_SIZE > (1ULL << 32)) {
+        std::cerr << "\n[!] ERROR: --seg-size must not exceed " << (1ULL << 32)
+                  << ".\n";
+        std::cerr << "    Above this, 32-bit thread-index arithmetic wraps and\n"
+                  << "    even numbers past offset 2^32 within a segment are\n"
+                  << "    silently skipped. Use v3.0.0 for larger segments.\n";
+        std::exit(1);
+    }
 
     // Validate CUDA Grid Sizes
     uint64_t num_tiles = (max_odds + TILE_ODDS - 1) / TILE_ODDS;

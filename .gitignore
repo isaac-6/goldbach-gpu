@@ -1,5 +1,5 @@
 # Build output
-build/
+build*/
 
 # benchmark data
 benchmarks/plot_data.tex
@@ -31,4 +31,5 @@ Makefile
 *~
 /bench-logs-v201/
 !corrigendum-logs/
-build/
+# *.txt above would otherwise swallow the environment.txt files in these logs.
+!corrigendum-logs/**/*.txt
