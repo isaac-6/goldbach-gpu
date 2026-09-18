@@ -8,6 +8,9 @@ authors:
 title: "GoldbachGPU: An Open Source GPU-Accelerated Framework for Verification of Goldbach's Conjecture"
 version: "3.0.0"
 date-released: 2026-09-09
+abstract: "GPU-accelerated exhaustive verification of the binary Goldbach
+  conjecture, with a device-resident segmented sieve and multi-GPU segment
+  scheduling."
 
 doi: "10.5281/zenodo.18786328"
 

@@ -1,0 +1,80 @@
+### 10^14 clean verification run at tag v3.0.0
+### captured: 2026-09-16 (UTC)
+### No --record-check, no --progress, no profiler, single GPU.
+###
+### Two runs. RUN A pins the parameters used by run_1e14_norecord.log so the
+### two are directly comparable. RUN B uses bare defaults; v3.0.0 derives
+### --seg-size from free VRAM and chose 200000000, the same value, so the
+### two runs differ only in --batch-size (2000000 vs the 100000 default).
+###
+###   run_1e14_norecord.log (636a183) : 932.8   s computation, 933.3 s wall, 0 fallbacks
+###   RUN A (v3.0.0, matched params)  : 941.807 s computation, 942.3 s wall, 0 fallbacks
+###   RUN B (v3.0.0, bare defaults)   : 939.398 s computation, 939.9 s wall, 0 fallbacks
+###
+### All three agree within 1%. The [counts] line is byte-identical across all
+### three, so the sieve configuration is the same in every case.
+###
+### ---------------- environment ----------------
+### GPU             : NVIDIA GeForce RTX 5090
+### VRAM            : 32607 MiB
+### compute cap     : 12.0
+### driver          : 610.88
+### CUDA            : Cuda compilation tools, release 13.3, V13.3.73
+### compiled for    : ELF file    1: goldbach.1.sm_120.cubin
+### CPU             : AMD Ryzen 7 9800X3D 8-Core Processor
+### cores/threads   : 16
+### OS              : Ubuntu 26.04 LTS
+### kernel          : 6.18.33.2-microsoft-standard-WSL2
+### glibc           : ldd (Ubuntu GLIBC 2.43-2ubuntu2.4) 2.43
+### g++             : g++ (Ubuntu 15.2.0-16ubuntu1) 15.2.0
+### cmake           : cmake version 4.2.3
+### commit          : badef6bef8c9d1cefe222377f9d149d3c9ac3c02
+### git describe    : v3.0.0
+### build command   : cmake .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_CUDA_ARCHITECTURES=120
+###                   make -j16 goldbach
+### -------------------------------------------
+
+### RUN A: parameters matched to the original clean run (run_1e14_norecord.log)
+### cmd: ./bin/goldbach 100000000000000 --seg-size=200000000 --p-small=1000000 --batch-size=2000000
+### started: 2026-09-16T14:26:53Z
+Building small primes bitset up to 10000001...
+[vram] GPU 0 (NVIDIA GeForce RTX 5090): need 132 MB, free 30927 MB of 32606 MB total
+[Hardware] GPU 0: NVIDIA GeForce RTX 5090 (32606 MB VRAM)
+Pre-generating CPU primes up to 100000000...
+Initialization completed in 236.017 ms.
+[counts] small_high=10000001 small_prime_count=664579 gpu_primes=78498 | SPLIT_THRESHOLD=65536 tiled=6542 large=658037
+
+--- Launching Multi-GPU Verifier ---
+Checking range : [4, 100000000000000]
+Total numbers  : 49999999999999
+
+
+--- Verification Complete ---
+All even numbers from 4 up to 100000000000000 satisfy Goldbach. ✓
+Total computation time : 941.807 seconds
+Phase 2 fallbacks      : 0
+	Elapsed (wall clock) time (h:mm:ss or m:ss): 15:42.32
+### exit: 0
+
+### RUN B: bare defaults, as specified in addendum step E2
+### cmd: ./bin/goldbach 100000000000000
+### started: 2026-09-16T14:42:36Z
+[auto] --seg-size not given; chose 200000000 from 30927 MB free VRAM
+Building small primes bitset up to 10000001...
+[vram] GPU 0 (NVIDIA GeForce RTX 5090): need 118 MB, free 30927 MB of 32606 MB total
+[Hardware] GPU 0: NVIDIA GeForce RTX 5090 (32606 MB VRAM)
+Pre-generating CPU primes up to 100000000...
+Initialization completed in 241.98 ms.
+[counts] small_high=10000001 small_prime_count=664579 gpu_primes=78498 | SPLIT_THRESHOLD=65536 tiled=6542 large=658037
+
+--- Launching Multi-GPU Verifier ---
+Checking range : [4, 100000000000000]
+Total numbers  : 49999999999999
+
+
+--- Verification Complete ---
+All even numbers from 4 up to 100000000000000 satisfy Goldbach. ✓
+Total computation time : 939.398 seconds
+Phase 2 fallbacks      : 0
+	Elapsed (wall clock) time (h:mm:ss or m:ss): 15:39.87
+### exit: 0

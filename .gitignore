@@ -9,6 +9,7 @@ benchmarks/*.log
 benchmarks/bench_gpu3*.sh
 benchmarks/extract_gpu3.py
 *.txt
+!bench-logs/run_1e14_v300.log
 
 # CMake
 CMakeCache.txt

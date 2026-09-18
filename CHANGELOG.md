@@ -6,7 +6,7 @@
   sieve distinct primes into the same 64-bit words, so concurrent updates were
   lost and some composites remained marked prime. Because `is_prime_q` consults
   this bitset, Phase 1 could accept a partition `n = p + q` in which `q` is not
-  prime. Now uses `atomicAnd`. (kudos to Kenzi Voyer for reporting)
+  prime. Now uses `atomicAnd`. (Reported by an independent correspondent)
 
 - **Parallel bitset construction.** `build_prime_bitset` gave each OpenMP thread
   a slice that was exclusive in bit index but not in 64-bit word, so adjacent
