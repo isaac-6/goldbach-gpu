@@ -1,0 +1,211 @@
+### cmd: ./bin/goldbach 10000000000 --seg-size=200000000 --p-small=1000000 --batch-size=2000000
+###      five runs against an sm_120 build and a default (sm_75) build of the same tree
+### started: 2026-09-21T11:22:00Z
+### binary: release/v2.0.2 at 02c6d49 (the tagged tree; no source file modified)
+###
+### Purpose: itemF_arch_differential.log records a 1.9x timing difference at
+### 10^10 between the two builds but does not contain the measurement, since its
+### own configurations are 10^7, 10^8 and ~10^12. This file supplies it.
+###
+### cuobjdump --list-elf /tmp/b120/bin/goldbach
+###   ELF file    1: goldbach.1.sm_120.cubin
+### cuobjdump --list-elf /tmp/bdef/bin/goldbach
+###   ELF file    1: goldbach.1.sm_75.cubin
+###   (bdef was configured with a plain -DCMAKE_BUILD_TYPE=Release;
+###    CMAKE_CUDA_ARCHITECTURES resolved to 75 on this sm_120 device)
+###
+### build:
+###   cmake -S . -B /tmp/b120 -DCMAKE_BUILD_TYPE=Release -DCMAKE_CUDA_ARCHITECTURES=120
+###   cmake -S . -B /tmp/bdef -DCMAKE_BUILD_TYPE=Release
+###   cmake --build /tmp/b120 -j --target goldbach
+###   cmake --build /tmp/bdef -j --target goldbach
+
+================ build-120 (sm_120) ================
+-- run 1 --
+[Hardware] GPU 0: NVIDIA GeForce RTX 5090 (32606 MB VRAM)
+Building small primes bitset up to 1000001...
+Pre-generating CPU primes up to 100000000...
+Initialization completed in 233.099 ms.
+
+--- Launching Multi-GPU Verifier ---
+Checking range : [4, 10000000000]
+Total numbers  : 4999999999
+
+
+--- Verification Complete ---
+All even numbers up to 10000000000 satisfy Goldbach. ✓
+Total computation time : 1.11439 seconds
+Phase 2 fallbacks      : 0
+-- exit: 0 --
+
+-- run 2 --
+[Hardware] GPU 0: NVIDIA GeForce RTX 5090 (32606 MB VRAM)
+Building small primes bitset up to 1000001...
+Pre-generating CPU primes up to 100000000...
+Initialization completed in 239.846 ms.
+
+--- Launching Multi-GPU Verifier ---
+Checking range : [4, 10000000000]
+Total numbers  : 4999999999
+
+
+--- Verification Complete ---
+All even numbers up to 10000000000 satisfy Goldbach. ✓
+Total computation time : 1.09352 seconds
+Phase 2 fallbacks      : 0
+-- exit: 0 --
+
+-- run 3 --
+[Hardware] GPU 0: NVIDIA GeForce RTX 5090 (32606 MB VRAM)
+Building small primes bitset up to 1000001...
+Pre-generating CPU primes up to 100000000...
+Initialization completed in 242.822 ms.
+
+--- Launching Multi-GPU Verifier ---
+Checking range : [4, 10000000000]
+Total numbers  : 4999999999
+
+
+--- Verification Complete ---
+All even numbers up to 10000000000 satisfy Goldbach. ✓
+Total computation time : 1.08692 seconds
+Phase 2 fallbacks      : 0
+-- exit: 0 --
+
+-- run 4 --
+[Hardware] GPU 0: NVIDIA GeForce RTX 5090 (32606 MB VRAM)
+Building small primes bitset up to 1000001...
+Pre-generating CPU primes up to 100000000...
+Initialization completed in 243.695 ms.
+
+--- Launching Multi-GPU Verifier ---
+Checking range : [4, 10000000000]
+Total numbers  : 4999999999
+
+
+--- Verification Complete ---
+All even numbers up to 10000000000 satisfy Goldbach. ✓
+Total computation time : 1.10563 seconds
+Phase 2 fallbacks      : 0
+-- exit: 0 --
+
+-- run 5 --
+[Hardware] GPU 0: NVIDIA GeForce RTX 5090 (32606 MB VRAM)
+Building small primes bitset up to 1000001...
+Pre-generating CPU primes up to 100000000...
+Initialization completed in 237.211 ms.
+
+--- Launching Multi-GPU Verifier ---
+Checking range : [4, 10000000000]
+Total numbers  : 4999999999
+
+
+--- Verification Complete ---
+All even numbers up to 10000000000 satisfy Goldbach. ✓
+Total computation time : 1.08652 seconds
+Phase 2 fallbacks      : 0
+-- exit: 0 --
+
+================ build-default (sm_75) ================
+-- run 1 --
+[Hardware] GPU 0: NVIDIA GeForce RTX 5090 (32606 MB VRAM)
+Building small primes bitset up to 1000001...
+Pre-generating CPU primes up to 100000000...
+Initialization completed in 238.866 ms.
+
+--- Launching Multi-GPU Verifier ---
+Checking range : [4, 10000000000]
+Total numbers  : 4999999999
+
+
+--- Verification Complete ---
+All even numbers up to 10000000000 satisfy Goldbach. ✓
+Total computation time : 0.611155 seconds
+Phase 2 fallbacks      : 0
+-- exit: 0 --
+
+-- run 2 --
+[Hardware] GPU 0: NVIDIA GeForce RTX 5090 (32606 MB VRAM)
+Building small primes bitset up to 1000001...
+Pre-generating CPU primes up to 100000000...
+Initialization completed in 237.266 ms.
+
+--- Launching Multi-GPU Verifier ---
+Checking range : [4, 10000000000]
+Total numbers  : 4999999999
+
+
+--- Verification Complete ---
+All even numbers up to 10000000000 satisfy Goldbach. ✓
+Total computation time : 0.584806 seconds
+Phase 2 fallbacks      : 0
+-- exit: 0 --
+
+-- run 3 --
+[Hardware] GPU 0: NVIDIA GeForce RTX 5090 (32606 MB VRAM)
+Building small primes bitset up to 1000001...
+Pre-generating CPU primes up to 100000000...
+Initialization completed in 240.054 ms.
+
+--- Launching Multi-GPU Verifier ---
+Checking range : [4, 10000000000]
+Total numbers  : 4999999999
+
+
+--- Verification Complete ---
+All even numbers up to 10000000000 satisfy Goldbach. ✓
+Total computation time : 0.591888 seconds
+Phase 2 fallbacks      : 0
+-- exit: 0 --
+
+-- run 4 --
+[Hardware] GPU 0: NVIDIA GeForce RTX 5090 (32606 MB VRAM)
+Building small primes bitset up to 1000001...
+Pre-generating CPU primes up to 100000000...
+Initialization completed in 235.526 ms.
+
+--- Launching Multi-GPU Verifier ---
+Checking range : [4, 10000000000]
+Total numbers  : 4999999999
+
+
+--- Verification Complete ---
+All even numbers up to 10000000000 satisfy Goldbach. ✓
+Total computation time : 0.569132 seconds
+Phase 2 fallbacks      : 0
+-- exit: 0 --
+
+-- run 5 --
+[Hardware] GPU 0: NVIDIA GeForce RTX 5090 (32606 MB VRAM)
+Building small primes bitset up to 1000001...
+Pre-generating CPU primes up to 100000000...
+Initialization completed in 240.054 ms.
+
+--- Launching Multi-GPU Verifier ---
+Checking range : [4, 10000000000]
+Total numbers  : 4999999999
+
+
+--- Verification Complete ---
+All even numbers up to 10000000000 satisfy Goldbach. ✓
+Total computation time : 0.566784 seconds
+Phase 2 fallbacks      : 0
+-- exit: 0 --
+
+================ result ================
+Phase 2 fallbacks: 0 on all ten runs, both architectures. The two sieves agree
+at 10^10, as they do at itemF_arch_differential.log's three configurations.
+
+Total computation time (s), five runs each, sample sd (n-1):
+
+  sm_120 : 1.11439, 1.09352, 1.08692, 1.10563, 1.08652
+           mean 1.09740, sd 0.01224
+  sm_75  : 0.611155, 0.584806, 0.591888, 0.569132, 0.566784
+           mean 0.58475, sd 0.01813
+
+  ratio sm_120 / sm_75 = 1.88x
+
+The sm_75 build is the faster of the two at this size, by 1.88x, confirming the
+1.9x referred to in itemF_arch_differential.log. The cause is not established.
+Fallback counts are identical, so this is code generation, not correctness. No
+reported figure in this corrigendum depends on the sm_75 build.

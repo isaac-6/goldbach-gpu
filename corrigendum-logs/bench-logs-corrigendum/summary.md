@@ -31,8 +31,10 @@ CPU comparator: `src/segmented_sieve.cpp` via `goldbach_lib`.
 | disagreements, mean of 5 runs | 299,984 |
 | composite reported PRIME | 299,984 (100%) |
 | prime reported COMPOSITE | 0 |
-| rate vs all odds compared | 2.4599% |
-| rate vs composites | 2.7272% |
+| rate vs all odds compared | 2.4585% |
+| rate vs composites | 2.7257% |
+
+Rates are computed from the five-run mean; run 1 alone gives 2.4599% and 2.7272%.
 
 Five runs: 300,156 / 300,167 / 300,049 / 299,833 / 299,715.
 Mean 299,984, sd 201.5, spread 452 (0.07%).
@@ -185,3 +187,133 @@ was not isolated.
 THESE TIMINGS DO NOT MEASURE A VALID COMPUTATION. The unfixed binary leaves
 2.73% of composites marked prime (Item A). These figures account for the change
 in the reported timings; they are not a performance baseline.
+
+---
+
+## Item E: D3 observed, segment size above 2^32
+
+Source: `itemE_d3_segsize.log`. v2.0.1 (commit 536ca1b), sm_120 build.
+
+```
+./bin/goldbach 9000000002 --seg-size=4500000000 --p-small=1000000 --batch-size=2000000
+```
+
+One segment: the run reports `Checking range : [4, 9000000002]` and
+`Total numbers  : 4500000000`. It printed "All even numbers up to 9000000002
+satisfy Goldbach.", 0 Phase 2 fallbacks, 1.09369 s, exit 0. The log notes the
+same verdict from a default build, where `CMAKE_CUDA_ARCHITECTURES=native`
+resolves to 75 on this device and the kernels run from JIT-compiled PTX.
+
+The success is the point. With a segment of 4,500,000,000 the offsets at or
+above 2^32 number 4,500,000,000 - 4,294,967,296 = 205,032,704, and 32-bit
+thread-index arithmetic wraps, so none of them is ever assigned a thread. Those
+even numbers were not checked, and the run still reported success. That count
+follows from the arithmetic in the source; it is not measured by this run, which
+emits no per-offset record. Captured before the startup guard added in v2.0.2.
+
+---
+
+## Item F: architecture differential, sm_120 against sm_75
+
+Source: `itemF_arch_differential.log`. Same tree (release/v2.0.2 working tree),
+built twice: `goldbach.1.sm_120.cubin` and, from a plain
+`-DCMAKE_BUILD_TYPE=Release`, `goldbach.1.sm_75.cubin`. Phase 2 fallbacks is a
+deterministic integer that depends only on sieve correctness, so the two builds
+must agree exactly.
+
+| Config | LIMIT | --p-small | fallbacks, sm_120 | fallbacks, sm_75 |
+|---|---|---|---|---|
+| T1 | 10^7 | 100 | 186,899 | 186,899 |
+| T2 | 10^8 | 1000 | 3 | 3 |
+| T3 | 1000040000000, --start=10^12 | 1000 | 894 | 894 |
+
+Three runs per build per configuration; identical on every run. Independent
+cross-check, `cpu_goldbach 10000000`: 4,999,999 even numbers checked, 0
+failures. Register allocation differs between the builds, as expected from
+separate code generation:
+
+| Kernel | REG, sm_120 | REG, sm_75 |
+|---|---|---|
+| `goldbach_phase1_kernel` | 52 | 43 |
+| `tiled_sieve_segment_kernel` | 34 | 38 |
+| `count_unverified_kernel` | 8 | 6 |
+
+The sm_75 build is the faster of the two at 10^10. That measurement is in
+`itemF_arch_1e10.log`: five runs per build of
+`goldbach 10000000000 --seg-size=200000000 --p-small=1000000 --batch-size=2000000`,
+same tree, 0 Phase 2 fallbacks on all ten.
+
+| Build | mean | sd (n-1) | runs |
+|---|---|---|---|
+| sm_120 | 1.09740 s | 0.01224 | 1.11439, 1.09352, 1.08692, 1.10563, 1.08652 |
+| sm_75 | 0.58475 s | 0.01813 | 0.611155, 0.584806, 0.591888, 0.569132, 0.566784 |
+
+The ratio is 1.88x, confirming the 1.9x that `itemF_arch_differential.log`
+refers to; that log also records that the ratio does not reproduce at T3, making
+it a function of total sieve work rather than of base-prime list size. The
+reason is not established. It does not matter for the record: no reported figure
+in this corrigendum depends on the sm_75 build. Every figure comes from an
+sm_120 build, and the two builds agree on every value they were asked about.
+
+---
+
+## Item G: differential test of the corrected D1 kernel
+
+Item A ran the differential harness only against the defective v2.0.0 kernel.
+Item G runs the same harness against the corrected v2.0.2 kernel, with a control
+run against the defective kernel in the same build.
+
+The harness is byte-identical to Item A's:
+`test_gpu_sieve.cu`, md5 `b89a71af991003c20b65eb58b10372d0`. Each build gets its
+own directory holding its own `sieve_kernel.cuh`, so the harness source does not
+change between them.
+
+Provenance of the kernel under test. `itemA_source/sieve_kernel_fixed.cuh` is
+Item A's archived header with the kernel body replaced by v2.0.2's. Lines 14-79
+of it and lines 200-265 of v2.0.2 `src/goldbach.cu` both hash to
+`c4e0fe44497ea2a935003db97ef62b10`: the kernel under test is byte-identical to
+the kernel in the tagged release. Diffed against Item A's extraction it shows one
+hunk, the D1 fix itself, `sh_tile[...] &= ~(1ULL << ...)` replaced by an
+`atomicAnd` over the same word plus a three-line comment. Nothing else differs.
+
+Build, machine A, both variants:
+
+```bash
+nvcc -O3 -std=c++17 -arch=sm_120 \
+     -I include -I /tmp/d1/$v \
+     /tmp/d1/$v/test_gpu_sieve.cu src/segmented_sieve.cpp src/prime_bitset.cpp \
+     -Xcompiler -fopenmp -lgomp \
+     -o /tmp/d1/$v/test_gpu_sieve
+```
+
+`cuobjdump --list-elf` reports `test_gpu_sieve.1.sm_120.cubin` and
+`test_gpu_sieve.2.sm_120.cubin` for both.
+
+Control, defective kernel, same build (`itemG_d1_control_defective.log`): FAIL,
+exit 1, 300,517 disagreements, all of them composite reported prime, none the
+other way.
+
+Corrected kernel, five runs (`itemG_d1_fixed_run1.log` to `run5.log`): PASS,
+exit 0, zero disagreements in both directions on every run.
+
+| Quantity | Control, defective | Corrected, all five runs |
+|---|---|---|
+| odd numbers compared | 12,202,140 | 12,202,140 |
+| of which prime (CPU) | 1,196,250 | 1,196,250 |
+| of which composite (CPU) | 11,005,890 | 11,005,890 |
+| composite reported PRIME | 300,517 | 0 |
+| prime reported COMPOSITE | 0 | 0 |
+| verdict | FAIL | PASS |
+
+The denominators are identical across all six runs, and identical to Item A's:
+the corrected kernel was asked about the same numbers, not fewer.
+
+Two notes for anyone reading the logs. The harness banner is hardcoded and
+reads `=== D1 QUANTIFICATION (v2.0.0 kernel, defect intact) ===` in every log
+including the five corrected-kernel runs; the header md5 on each log's prefix
+line identifies which kernel actually ran, and the fixed logs carry an explicit
+note to that effect. And the control's 300,517 lies slightly above the range of
+Item A's five runs, 299,715 to 300,167, which is what a nondeterministic race
+recompiled into a fresh build should do: the rate against composites is 2.7305%
+here against Item A's 2.7257% mean, a difference in the fourth significant
+figure.

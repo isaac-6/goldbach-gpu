@@ -53,9 +53,16 @@ before the startup guard was added in v2.0.2.
 
 `bench-logs-corrigendum/itemF_arch_differential.log` compares an sm_120 build
 against a default (sm_75, JIT) build of the same tree. Phase 2 fallback counts
-are identical at both test points, so the two sieves agree on every value they
-were asked about and the timing difference between the builds is code
-generation, not correctness.
+are identical at all three test points, so the two sieves agree on every value
+they were asked about and the timing difference between the builds is code
+generation, not correctness. `bench-logs-corrigendum/itemF_arch_1e10.log` adds
+the 10^10 comparison that the first log refers to but does not contain: five
+runs per build, fallbacks identical, the sm_75 build faster by 1.88x.
+
+`bench-logs-corrigendum/itemG_*` runs Item A's differential harness,
+unchanged, against the corrected v2.0.2 kernel, with a control run against the
+defective kernel in the same build. These were added after the v2.0.2 tag, on
+the `release/v2.0.2` branch.
 
 `bench-logs-machineB/` holds the two-GPU figures. That node was a rented
 ephemeral pod and the session was not captured to file, so the values were
