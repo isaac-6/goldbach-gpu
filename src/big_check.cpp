@@ -97,8 +97,21 @@ static bool parse_n(const std::string& s, mpz_t out) {
     return ok;
 }
 
+// Exact number of decimal digits. mpz_sizeinbase is documented to return a
+// result that "may be one too big" for any base that is not a power of two, so
+// it cannot be used for a reported digit count: for q = 10^100 - 797 it answers
+// 101 where the true count is 100. The length of the decimal string is exact.
+static size_t decimal_digits(const mpz_t x) {
+    char*  buf = mpz_get_str(nullptr, 10, x);
+    size_t d   = std::strlen(buf);
+    if (buf[0] == '-') d--;
+    std::free(buf);
+    return d;
+}
+
 // Full decimal string when q is short, otherwise digit count plus the leading
-// and trailing 20 digits.
+// and trailing 20 digits. The threshold uses the exact count above, so a q of
+// exactly 100 digits is printed in full.
 static void print_q(const mpz_t q, size_t digits) {
     char* buf = mpz_get_str(nullptr, 10, q);
     std::string s(buf);
@@ -196,7 +209,7 @@ static Outcome search(const mpz_t n, const std::vector<uint64_t>& primes, bool q
     mpz_init(q); mpz_init(p);
     mpz_set_ui(p, out.p);
     mpz_sub(q, n, p);
-    out.q_digits  = mpz_sizeinbase(q, 10);
+    out.q_digits  = decimal_digits(q);
     out.prp_status = mpz_probab_prime_p(q, 25);
     out.prp_calls++;
     if (!quiet) {
@@ -275,7 +288,7 @@ int main(int argc, char* argv[]) {
     uint64_t L = p_max;
     if (mpz_cmp_ui(n_half, p_max) < 0) L = mpz_get_ui(n_half);
 
-    size_t n_digits = mpz_sizeinbase(n, 10);
+    size_t n_digits = decimal_digits(n);
     auto t_start = std::chrono::high_resolution_clock::now();
 
     if (!quiet) {

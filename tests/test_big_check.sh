@@ -2,13 +2,14 @@
 # test_big_check.sh
 # Functional test for big_check.
 #
-# Six cases:
+# Seven cases:
 #   1 records      every published p-record below 1e13 is reproduced by big_check
 #   2 edges        n = 4, 6, 8
 #   3 bound        n = 128 --p-max=17 must exit 3 (no partition within the bound)
 #   4 determinism  the 1e12 record gives the same p on 1 thread and on all threads
 #   5 expression   10^30 and its decimal string give identical RESULT lines
 #   6 invalid      malformed and out-of-domain inputs exit 1
+#   7 digits       reported digit counts are exact, and a 100-digit q prints in full
 #
 # The record pairs are not duplicated here: they are read out of
 # src/test_records.cpp, which carries the provenance for that table, so the two
@@ -48,7 +49,7 @@ field() { sed -n 's/.*[[:space:]]'"$1"'=\([^[:space:]]*\).*/\1/p' <<<"$2"; }
 # ---------------------------------------------------------------
 # Case 1: published p-records
 # ---------------------------------------------------------------
-echo "[1/6] published p-records below 1e13"
+echo "[1/7] published p-records below 1e13"
 cases=$((cases+1))
 mapfile -t RECS < <(sed -n '/^static const Record RECORDS\[\]/,/^};/p' "$RECORDS_SRC" \
                     | sed -n 's/^[[:space:]]*{[[:space:]]*\([0-9]\+\)ULL[[:space:]]*,[[:space:]]*\([0-9]\+\)[[:space:]]*}.*/\1 \2/p')
@@ -89,7 +90,7 @@ done
 # ---------------------------------------------------------------
 # Case 2: small even numbers
 # ---------------------------------------------------------------
-echo "[2/6] edge cases n = 4, 6, 8"
+echo "[2/7] edge cases n = 4, 6, 8"
 cases=$((cases+1))
 edge_fail=0
 for pair in "4 2" "6 3" "8 3"; do
@@ -105,7 +106,7 @@ done
 # ---------------------------------------------------------------
 # Case 3: search-limit result
 # ---------------------------------------------------------------
-echo "[3/6] n = 128 --p-max=17 exits 3"
+echo "[3/7] n = 128 --p-max=17 exits 3"
 cases=$((cases+1))
 out=$("$BIG_CHECK" 128 --p-max=17 --quiet 2>&1); rc=$?
 st=$(field status "$out")
@@ -122,7 +123,7 @@ fi
 # ---------------------------------------------------------------
 # Case 4: determinism in thread count
 # ---------------------------------------------------------------
-echo "[4/6] determinism at the 1e12 record"
+echo "[4/7] determinism at the 1e12 record"
 cases=$((cases+1))
 N_DET=3132059294006
 out1=$(OMP_NUM_THREADS=1 "$BIG_CHECK" "$N_DET" --quiet 2>&1); rc1=$?
@@ -141,7 +142,7 @@ fi
 # ---------------------------------------------------------------
 # Case 5: expression input
 # ---------------------------------------------------------------
-echo "[5/6] 10^30 matches its decimal string"
+echo "[5/7] 10^30 matches its decimal string"
 cases=$((cases+1))
 DEC=1000000000000000000000000000000
 # Pinned to one thread on both sides. prp_calls counts tests actually issued,
@@ -165,7 +166,7 @@ fi
 # ---------------------------------------------------------------
 # Case 6: invalid input
 # ---------------------------------------------------------------
-echo "[6/6] invalid input exits 1"
+echo "[6/7] invalid input exits 1"
 cases=$((cases+1))
 inv_fail=0
 for bad_in in "7" "2" "0" "abc" "10^" "^5" "12x" "-4"; do
@@ -176,6 +177,43 @@ for bad_in in "7" "2" "0" "abc" "10^" "^5" "12x" "-4"; do
     fi
 done
 [ "$inv_fail" -eq 0 ] && ok "odd, too-small and malformed inputs all exit 1"
+
+# ---------------------------------------------------------------
+# Case 7: exact digit counts
+# ---------------------------------------------------------------
+# mpz_sizeinbase(x, 10) may return one more than the true digit count, so it
+# cannot be used for a reported figure. 10^100 - 797 has exactly 100 digits and
+# is the case that exposed it; 2^1000 - 16607 is a control, since the old code
+# was already right whenever the leading digit did not roll over.
+echo "[7/7] exact digit counts and full-q printing"
+cases=$((cases+1))
+dig_fail=0
+
+out=$("$BIG_CHECK" "10^100" --quiet 2>&1); rc=$?
+dp=$(field p "$out"); dq=$(field q_digits "$out")
+if [ "$rc" -ne 0 ] || [ "$dp" != "797" ] || [ "$dq" != "100" ]; then
+    bad "10^100 expected p=797 q_digits=100, got p=${dp:-<none>} q_digits=${dq:-<none>} (exit $rc)"
+    dig_fail=1
+fi
+
+# 100 digits is within the <= 100 threshold, so q must appear in full rather
+# than as the leading/trailing 20 digits joined by an ellipsis.
+vout=$("$BIG_CHECK" "10^100" 2>&1)
+qline=$(grep -m1 '^q = ' <<<"$vout")
+qval=${qline#q = }
+if [ "${#qval}" -ne 100 ] || [[ "$qval" == *...* ]]; then
+    bad "10^100: q not printed in full (${#qval} chars: '${qval:0:40}')"
+    dig_fail=1
+fi
+
+out=$("$BIG_CHECK" "2^1000" --quiet 2>&1); rc=$?
+dq=$(field q_digits "$out")
+if [ "$rc" -ne 0 ] || [ "$dq" != "302" ]; then
+    bad "2^1000 expected q_digits=302, got ${dq:-<none>} (exit $rc)"
+    dig_fail=1
+fi
+
+[ "$dig_fail" -eq 0 ] && ok "10^100 -> p=797, q_digits=100, q printed in full; 2^1000 -> q_digits=302"
 
 echo
 if [ "$fails" -eq 0 ]; then
