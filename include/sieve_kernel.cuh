@@ -15,10 +15,37 @@
 // cudaFuncSetAttribute raises it, so values above 49152 will fail to launch.
 // 32768 is the largest power of two that fits under that cap.
 //
-// Chosen by measurement at 1e11 (RTX 5090): 4096 -> 4.019s, 8192 -> 2.201s,
-// 16384 -> 1.379s, 32768 -> 1.284s.
+// Chosen by measurement on v3.0.0 code, with large_prime_sieve_kernel present,
+// on an RTX 5090 (sm_120). Figures are variable cost: mean wall clock at N minus
+// mean wall clock at 1e6, which removes the fixed setup. Five runs at 1e11 and
+// 1e12, three at 1e13, builds interleaved, 0 Phase 2 fallbacks throughout.
+//
+//   TILE_ODDS      1e11       1e12       1e13
+//        4096         --    10.760s         --
+//        8192     0.726s     7.946s    83.969s
+//       16384     0.702s     7.398s    78.670s   <- best at every limit
+//       32768     0.800s     8.418s    88.957s
+//
+// 16384 wins by 13-14% over 32768 at all three limits, a margin stable across
+// two decades of N rather than a crossover.
+//
+// This reverses an earlier default. A sweep at 1e11 recorded here previously
+// (4096 -> 4.019s, 8192 -> 2.201s, 16384 -> 1.379s, 32768 -> 1.284s) put 32768
+// ahead, and that measurement was sound for the code it was taken on: commits
+// 6daef62 and 75a03b5 differ only in this constant and measure 1.383s and
+// 1.303s at 1e11, matching those figures. What changed is 29878c3, which moved
+// large primes out of the tiled kernel into large_prime_sieve_kernel. That
+// removed the per-tile work a wider tile was amortising, and the tradeoff
+// inverted. Do not reinstate 32768 on the strength of the old numbers.
+//
+// Occupancy does not predict the optimum. cudaOccupancyMaxActiveBlocksPerMulti-
+// processor on tiled_sieve_segment_kernel at 256 threads gives 6, 6, 5 and 3
+// resident blocks per SM for 4096, 8192, 16384 and 32768 (36 registers in every
+// case, so shared memory alone sets it). Occupancy falls monotonically with
+// tile width while runtime is U-shaped; the fastest setting is the second
+// lowest occupancy of the four.
 #ifndef TILE_ODDS
-#define TILE_ODDS 32768
+#define TILE_ODDS 16384
 #endif
 
 // Prime-list partition point: primes below this go to the tiled kernel, the
@@ -26,39 +53,29 @@
 // a shared-memory/occupancy question, this is a per-tile-division vs global-
 // atomic tradeoff. Both kernels are correct for any split point.
 //
-// Chosen at N = 1e13, the limit the manuscript reports, with TILE_ODDS=32768
-// on an RTX 5090. Mean of three runs, 0 Phase 2 fallbacks throughout:
+// Chosen at N = 1e13, the limit the manuscript reports, with TILE_ODDS=16384
+// on an RTX 5090 (sm_120). Variable cost: mean wall clock at 1e13 minus mean
+// wall clock at 1e6. Three runs at 1e13, five at 1e6, builds interleaved,
+// 0 Phase 2 fallbacks throughout:
 //
-//   SPLIT_THRESHOLD   tiled   large      mean    vs best
-//             32768    3512  224135    97.626s     +9.88%
-//             65536    6542  221105    88.847s      best
-//            131072   12251  215396    89.960s     +1.25%
-//            262144   23000  204647   100.942s    +13.61%
-//            524288   43390  184257   124.983s    +40.67%
-//           1048576   82025  145622   173.384s    +95.15%
+//   SPLIT_THRESHOLD   variable cost   vs best
+//             32768         85.991s    +9.28%
+//             65536         78.686s      best
+//            131072         81.369s    +3.41%
+//
+// 65536 remains the best of the three after the tile width dropped to 16384,
+// so the two constants did not have to be retuned together. The curve keeps the
+// shape it had at TILE_ODDS=32768: one step below is the expensive mistake
+// (+9.28%) and one step above the cheap one (+3.41%).
 //
 // The remaining sieve time is atomic-bound rather than division-bound: primes
 // marking at most one byte per tile are still cheaper left in the tiled kernel,
 // paying full per-tile divisions, than moved to global atomicAnd.
 //
-// The curve is asymmetric, but not in the direction a glance at the extremes
-// suggests. Relative to the optimum, by power-of-two steps:
-//     1 step below (32768)    +9.88%
-//     1 step above (131072)   +1.25%
-//     2 steps above (262144) +13.61%
-//     3 steps above (524288) +40.67%
-//     4 steps above (1048576)+95.15%
-// The curve is flat between 65536 and 131072 and rises steeply outside that
-// range. The optimum depends on how many sieving primes there are, which grows
-// as sqrt(N) above 1e12, so a different limit may prefer a different value.
-//
-// 65536 is also the best of the two candidates at 1e11 (0.8063s vs 0.8092s for
-// 131072), so no single-default tradeoff arises between the two scales. An
-// earlier sweep at 1e11 alone put the optimum at 131072, but the two differ
-// there by less than wall-clock resolution; only 1e13 separates them.
-//
-// The true optimum lies somewhere in [32768, 131072]; only powers of two were
-// sampled.
+// The optimum depends on how many sieving primes there are, which grows as
+// sqrt(N) above 1e12, so a different limit may prefer a different value. Only
+// powers of two were sampled and only at 1e13; the true optimum lies somewhere
+// in [32768, 131072].
 #ifndef SPLIT_THRESHOLD
 #define SPLIT_THRESHOLD 65536
 #endif
