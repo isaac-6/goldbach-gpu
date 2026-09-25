@@ -162,6 +162,25 @@ target_link_libraries(analyze_pmin PRIVATE goldbach_lib)
 set_target_properties(analyze_pmin PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 
+# --- Tests (ctest) ---
+enable_testing()
+
+add_test(NAME test_gpu_sieve   COMMAND test_gpu_sieve)
+add_test(NAME test_primality   COMMAND test_primality)
+add_test(NAME test_records     COMMAND test_records)
+add_test(NAME test_bitset_race COMMAND test_bitset_race)
+add_test(NAME test_phase1      COMMAND test_phase1)
+
+# Shell-driven functional test for big_check. It reads the published p-record
+# table out of src/test_records.cpp rather than carrying its own copy, so the
+# source root is passed in alongside the binary.
+add_test(NAME test_big_check
+         COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_big_check.sh
+                 $<TARGET_FILE:big_check>
+                 ${CMAKE_CURRENT_SOURCE_DIR})
+set_tests_properties(test_big_check PROPERTIES TIMEOUT 1800)
+
+
 # --- Installation/Output ---
 # (Optional) Set output directory to a bin folder
 set_target_properties(big_check single_check cpu_goldbach
