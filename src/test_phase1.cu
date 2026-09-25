@@ -223,6 +223,34 @@ int main() {
         total += m;
     }
 
+    // -------------------------------------------------------
+    // Scalar-kernel coverage of the segment-bitset lookup.
+    // -------------------------------------------------------
+    // launch_goldbach_phase1 routes a segment to the scalar kernel only when
+    // seg_even_start <= 2*p_small + 128, so with P_SMALL = 1e6 the only range
+    // above that takes the scalar path is [4, 4+SPAN]. There every complement
+    // q = n - p stays below small_high = max(isqrt(n_high)+1, p_small) = 1000001,
+    // so is_prime_q always answers from d_small and its segment-bitset branch
+    // is never entered -- a corruption of that branch goes undetected.
+    //
+    // Lowering p_small to 1e4 keeps the range on the scalar path
+    // (4 <= 2*10^4 + 128) while dropping small_high to 10001, so the complements
+    // up to ~400001 now exceed it and resolve against the segment bitset.
+    const uint64_t P_SMALL_SCALAR = 10000;
+
+    struct { uint64_t lo, hi; const char* name; } scalar_cov[] = {
+        {4, 4 + SPAN, "from 4, p_small=1e4 (scalar segment-bitset path)"},
+    };
+
+    for (auto& t : scalar_cov) {
+        printf("  [%s] [%llu, %llu]\n", t.name,
+               (unsigned long long)t.lo, (unsigned long long)t.hi);
+        fflush(stdout);
+        uint64_t m = check_range(t.lo, t.hi, P_SMALL_SCALAR, true);
+        printf("    -> %llu mismatches\n", (unsigned long long)m);
+        total += m;
+    }
+
     std::mt19937_64 rng(20260908);
     printf("  [randomized] 20 ranges\n");
     fflush(stdout);
