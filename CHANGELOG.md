@@ -1,4 +1,4 @@
-## [3.1.0] - YYYY-MM-DD
+## [3.1.0] - 2026-10-26
 
 ### Changed
 - **`TILE_ODDS` default 32768 to 16384.** 13-14% faster at 10^11, 10^12 and
