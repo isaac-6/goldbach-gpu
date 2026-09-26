@@ -310,15 +310,15 @@ previous host-coupled implementation, retained for comparison and built with
 
 ## How to cite
 
-If you use this software in academic work, please cite the archived release:
+If you use this software, please cite the archived release on Zenodo:
 
 ```
-Llorente-Saguer, I. (2026). GoldbachGPU (v3.0.0) [Software]. Zenodo.
-https://doi.org/10.5281/zenodo.XXXXXXXX
-```
-
-For the latest version, see the concept DOI:
+Llorente-Saguer, I. (2026). GoldbachGPU [Software]. Zenodo.
 https://doi.org/10.5281/zenodo.18786328
+```
+
+This DOI resolves to the latest version. The DOI of each release is listed
+on the Zenodo record.
 
 If you reference the scientific description of the range verification
 (`goldbach`), please cite:
@@ -336,13 +336,10 @@ Llorente-Saguer, I. (2026). GoldbachGPU: High-performance Goldbach verification
 on GPUs. https://arxiv.org/abs/2603.02621
 ```
 
-**Note on versions.** The preprints above describe release v2.0.0. Two
-concurrency defects have since been found and fixed in that code (see
-[CHANGELOG.md](CHANGELOG.md)) and a corrigendum reporting corrected timings is
-in preparation. The performance figures on this page come from the current
-release and are not comparable to those in the preprints, which describe a
-different implementation. A manuscript covering the optimisations is also in
-preparation.
+**Note on versions.** The preprints above describe release v2.0.0. 
+Their performance figures describe that implementation and are not comparable 
+to those on this page, which come from the current release. 
+A manuscript describing the current release is in preparation.
 
 ---
 
