@@ -12,9 +12,9 @@
 Exhaustive GPU verification of Goldbach's conjecture: every even integer in a
 range is checked for a representation as the sum of two primes.
 
-Verifies every even number from 4 to 10<sup>14</sup> in **15 minutes 33 seconds**
+Verifies every even number from 4 to 10<sup>14</sup> in **13 minutes 56 seconds**
 on a single RTX 5090, with no counterexamples found. On four GPUs, 10<sup>13</sup>
-takes 20.9 seconds at 99.96% parallel efficiency.
+takes 20.9 seconds at 99.95% parallel efficiency.
 
 This does not approach the research frontier: Oliveira e Silva, Herzog and Pardi
 verified to 4×10<sup>18</sup> in 2014 using a distributed CPU cluster over several
@@ -27,33 +27,40 @@ hardware an individual can own, in minutes rather than machine-years.
 
 ### Single GPU
 
-RTX 5090, CUDA 13.3, Ubuntu 26.04 (WSL2). Five runs per limit, mean ± sample
-standard deviation. Zero Phase 2 fallbacks throughout.
+v3.1.0, RTX 5090. CUDA 13.3, Ubuntu 26.04 (WSL2). Mean ± sample standard
+deviation; run counts differ by limit and are given in the table. Zero Phase 2
+fallbacks throughout. `TILE_ODDS=16384`, `SPLIT_THRESHOLD=65536`.
 
-| Limit | Computation | Wall clock |
-|---|---|---|
-| 10<sup>10</sup> | 0.087 ± 0.001 s | 0.56 s |
-| 10<sup>11</sup> | 0.809 ± 0.002 s | 1.27 s |
-| 10<sup>12</sup> | 8.44 ± 0.03 s | 8.89 s |
-| 10<sup>13</sup> | 88.79 ± 0.14 s | 89.24 s |
-| 10<sup>14</sup> | 932.8 s | 933.3 s |
+| Limit | Computation | Wall clock | Runs |
+|---|---|---|---|
+| 10<sup>10</sup> | 0.0755 ± 0.0007 s | 0.540 ± 0.017 s | 5 |
+| 10<sup>11</sup> | 0.698 ± 0.003 s | 1.162 ± 0.028 s | 5 |
+| 10<sup>12</sup> | 7.386 ± 0.032 s | 7.858 ± 0.075 s | 5 |
+| 10<sup>13</sup> | 78.686 ± 0.029 s | 79.140 ± 0.032 s | 6 |
+| 10<sup>14</sup> | 835.66 s | 836.13 s | 1 |
 
-Every row above is a plain verification run: no `--record-check`, no profiler.
-At 10<sup>10</sup> the computation is only 0.087 s against 0.56 s wall clock, so
+At 10<sup>14</sup> this is **1.13× faster than v3.0.0**, whose tag run took
+942.3 s wall against 836.13 s here; the gain is the `TILE_ODDS` change described
+under Tuning.
+
+Every row is a plain verification run: no `--record-check`, no profiler. At
+10<sup>10</sup> the computation is only 0.0755 s against 0.540 s wall clock, so
 most of the wall time is fixed startup. That row should not be read as a
 throughput figure.
 
-Scaling stays close to linear across the whole ladder, including the last decade:
-10<sup>13</sup> → 10<sup>14</sup> is 10.51×. Normalised per segment the cost is
-3.24, 3.38, 3.55 and 3.73 ms at 10<sup>11</sup> through 10<sup>14</sup>; 5%
-rise over the final decade, not a regime change.
+Scaling stays close to linear across the ladder. On computation the decade
+ratios are 9.25×, 10.58×, 10.65× and 10.62× from 10<sup>10</sup> to
+10<sup>14</sup>. Normalised per segment the cost is 2.79, 2.95, 3.15 and 3.34 ms
+at 10<sup>11</sup> through 10<sup>14</sup>: a 6.2% rise over the final decade and
+19.7% over the three, not a regime change.
 
 There is a real effect underneath: above 10<sup>12</sup> the sieve bound √N
-overtakes `--p-small`, so the number of sieving primes grows (78,498 → 227,647 →
-664,579) and the large-prime kernel's share of GPU time rises from 8% at
-10<sup>11</sup> to 29% at 10<sup>14</sup>. Phase 1 is unaffected, since its prime
-list stays capped at `--p-small`. The sieve is absorbing that growth well so far,
-but it is the term that will dominate first at larger limits.
+overtakes `--p-small`, so the number of sieving primes grows, from 78,498 at
+10<sup>11</sup> to 227,647 at 10<sup>13</sup> and 664,579 at 10<sup>14</sup>
+(reported by the runs themselves as `small_prime_count`). Phase 1 is unaffected,
+since its prime list stays capped at `--p-small` at 78,498 throughout. The sieve
+is absorbing that growth well so far, but it is the term that will dominate first
+at larger limits.
 
 ### Multiple GPUs
 
@@ -63,18 +70,21 @@ computation time, with T₁ measured on the same node.
 
 | Limit | GPUs | Computation | Speedup | Efficiency |
 |---|---|---|---|---|
-| 10<sup>12</sup> | 1 | 7.825 s | — | — |
-| | 2 | 3.910 s | 2.00× | ~100% |
-| | 4 | 1.969 s | 3.97× | 99.4% |
-| 10<sup>13</sup> | 1 | 83.724 s | — | — |
-| | 2 | 41.740 s | 2.01× | ~100% |
-| | 4 | 20.941 s | 4.00× | 99.96% |
+| 10<sup>12</sup> | 1 | 7.8252 ± 0.0156 s | — | — |
+| | 2 | 3.9096 ± 0.0042 s | 2.0015× | 100.08% |
+| | 4 | 1.9686 ± 0.0012 s | 3.9750× | 99.38% |
+| 10<sup>13</sup> | 1 | 83.7240 ± 0.0504 s | — | — |
+| | 2 | 41.7403 ± 0.0687 s | 2.0058× | 100.29% |
+| | 4 | 20.9406 ± 0.0221 s | 3.9982× | 99.95% |
+
+Values transcribed from the session output of a rented node; raw logs were not
+retained.
 
 The 2-GPU rows measure marginally above 100%, which is measurement noise rather
 than superlinear scaling. On wall clock the 4-GPU 10<sup>13</sup> figure is
-22.60 s against 20.94 s of computation: the ~1.6 s of startup is fixed
-regardless of GPU count, so wall-clock efficiency is 92.7% where computation
-efficiency is ~100%.
+22.5960 s against 20.9406 s of computation: the ~1.66 s of startup is fixed
+regardless of GPU count, so computation is 92.67% of wall clock where computation
+efficiency against one GPU is 99.95%.
 
 Work is distributed by a lock-free atomic counter (each GPU claims the next
 segment when it finishes the previous one) so devices of different speeds
@@ -180,7 +190,7 @@ been reached at any limit tested.
 
 Verification is only as good as its checks, and a verifier that is silently wrong
 produces exactly the same output as one that is right. The repository therefore
-carries five tests, each comparing a component against an independent
+carries six tests, each comparing a component against an independent
 implementation rather than against itself:
 
 | Test | What it checks |
@@ -190,6 +200,15 @@ implementation rather than against itself:
 | `test_primality` | Baillie–PSW against the 12-base deterministic Miller–Rabin, with emphasis above 2<sup>63</sup>. |
 | `test_bitset_race` | Repeated parallel bitset construction against a single-threaded reference, at both word-aligned and misaligned thread boundaries. |
 | `test_records` | Minimal primes against 48 published record values computed independently by Oliveira e Silva. |
+| `test_big_check` | `big_check` against the same 48 published records, plus small-*n* edges, the search-limit exit, thread-count determinism and expression input. Reads the record table out of `test_records.cpp` rather than copying it. |
+
+All six are registered with CTest, so the whole suite runs with:
+
+```bash
+ctest --output-on-failure
+```
+
+or individually:
 
 ```bash
 ./bin/test_gpu_sieve && ./bin/test_phase1 && ./bin/test_primality \
@@ -199,10 +218,10 @@ implementation rather than against itself:
 The `--record-check` flag extends this to a live run. It reports each new maximum
 minimal prime as it is found; a separate 10<sup>14</sup> run with the flag set
 emitted 22 such records, all matching the published table, six of them above
-10<sup>13</sup> where the CPU-side test does not reach. The flag costs 26.5% at
-10<sup>14</sup> (43.6% at 10<sup>11</sup>, falling as N grows because the
-tracking is proportional to Phase 1, whose share of runtime shrinks), so it is
-off by default and the timings above are measured without it.
+10<sup>13</sup> where the CPU-side test does not reach. The flag costs 26.6% at
+10<sup>14</sup>, measured at v3.0.0 with both the flagged and unflagged runs on
+that version, so it is off by default and the timings above are measured without
+it.
 
 Under `--gpus>1` segments complete out of order, so a later segment can raise the
 running maximum and permanently suppress a genuine earlier record. The surviving
@@ -220,24 +239,49 @@ have no counterexample below 2<sup>64</sup> but has no such proof, which is why
 ## Tuning
 
 `TILE_ODDS` and `SPLIT_THRESHOLD` are compile-time constants, overridable with
-`-DCMAKE_CUDA_FLAGS="-DSPLIT_THRESHOLD=65536"`. The defaults were chosen by
-sweeping at 10<sup>13</sup> on an RTX 5090.
+`-DCMAKE_CUDA_FLAGS="-DSPLIT_THRESHOLD=65536"`. Both defaults were measured on an
+RTX 5090 with the large-prime kernel present. Figures below are variable cost:
+mean wall clock at N minus mean wall clock at 10<sup>6</sup>, which removes the
+fixed setup. Five runs at 10<sup>11</sup> and 10<sup>12</sup>, three at
+10<sup>13</sup>, builds interleaved, 0 Phase 2 fallbacks throughout.
+
+### Tile width
+
+`TILE_ODDS` is the number of odd numbers per sieve tile, and shared memory per
+block is `TILE_ODDS` bytes. It trades occupancy against the fixed per-tile cost
+of looping over every small prime.
+
+| `TILE_ODDS` | 10<sup>11</sup> | 10<sup>12</sup> | 10<sup>13</sup> |
+|---|---|---|---|
+| 4096 | — | 10.760 s | — |
+| 8192 | 0.726 s | 7.946 s | 83.969 s |
+| **16384** | **0.702 s** | **7.398 s** | **78.670 s** |
+| 32768 | 0.800 s | 8.418 s | 88.957 s |
+
+16384 is fastest at every limit measured, by 13–14% over 32768, a margin stable
+across two decades of N rather than a crossover. Occupancy does not predict this:
+`cudaOccupancyMaxActiveBlocksPerMultiprocessor` gives 6, 6, 5 and 3 resident
+blocks per SM for 4096, 8192, 16384 and 32768 at 256 threads, with 36 registers
+in every case, so shared memory alone sets it. Occupancy falls monotonically with
+tile width while runtime is U-shaped.
+
+### Split threshold
+
+Primes below `SPLIT_THRESHOLD` go to the tiled kernel, the rest to
+`large_prime_sieve_kernel`. Measured at 10<sup>13</sup> with `TILE_ODDS=16384`:
+
+| `SPLIT_THRESHOLD` | Variable cost | Relative |
+|---|---|---|
+| 32768 | 85.991 s | +9.28% |
+| **65536** | **78.686 s** | optimum |
+| 131072 | 81.369 s | +3.41% |
+
+65536 remains best after the tile width dropped to 16384, so the two constants
+did not have to be retuned together.
 
 The optimum for `SPLIT_THRESHOLD` depends on how many sieving primes there are,
 which grows as √N above 10<sup>12</sup>, so a different limit may prefer a
-different value. Measured at 10<sup>13</sup>, relative to the optimum of 65536:
-
-| Step from optimum | Value | Cost |
-|---|---|---|
-| 1 below | 32768 | +9.9% |
-| 1 above | 131072 | +1.3% |
-| 2 above | 262144 | +13.6% |
-| 3 above | 524288 | +40.7% |
-| 4 above | 1048576 | +95.2% |
-
-The curve is flat between 65536 and 131072 and rises steeply outside that
-range. The optimum depends on how many sieving primes there are, which grows
-as sqrt(N) above 1e12, so a different limit may prefer a different value.
+different value. Only powers of two were sampled.
 
 `--seg-size` mainly trades memory for parallelism and is flat near the default.
 
@@ -250,7 +294,8 @@ src/goldbach.cu           Main verifier
 include/sieve_kernel.cuh  Segment sieve (tiled and large-prime kernels)
 include/phase1_kernel.cuh Verification kernels (transposed and scalar)
 include/primality.cuh     Miller-Rabin and Baillie-PSW, device and host
-src/test_*.c*             The five tests described above
+src/test_*.c*             The five test binaries described above
+tests/test_big_check.sh   Functional test for big_check (sixth test)
 src/analyze_pmin.cpp      Distribution of minimal primes; used to size the
                           search bound and to predict kernel cost
 ```

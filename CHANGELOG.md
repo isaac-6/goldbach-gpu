@@ -1,3 +1,56 @@
+## [3.1.0] - YYYY-MM-DD
+
+### Changed
+- **`TILE_ODDS` default 32768 to 16384.** 13-14% faster at 10^11, 10^12 and
+  10^13 on an RTX 5090, measured as variable cost with the large-prime kernel
+  present, and 1.13x faster at 10^14 end to end: 836.13 s wall against the
+  v3.0.0 tag run's 942.3 s. The previous default was measured before that kernel
+  existed, when a wider tile still amortised per-tile work that has since moved
+  out of the tiled sieve. `SPLIT_THRESHOLD` was re-measured at the new tile width
+  and stays at 65536. Occupancy does not predict the optimum: resident blocks per SM fall
+  monotonically with tile width while runtime is U-shaped.
+
+- **`big_check` reports the minimal p.** It now searches only p <= L, where
+  L = min(`--p-max`, floor(n/2)), and returns the smallest such p with n - p a
+  probable prime, for any thread count. Previously the first thread to reach a
+  candidate past n/2 could end the search, so the reported p was not
+  necessarily minimal.
+
+- **`big_check` exit statuses.** 0 found, 3 no partition with p <= L, 1 invalid
+  input. Exhausting the bound is reported as a search limit and no longer
+  described as a counterexample.
+
+- **`big_check` digit counts are exact.** Reported digit counts came from
+  `mpz_sizeinbase(x, 10)`, which GMP documents as possibly one too large for any
+  base that is not a power of two. q for n = 10^100 was reported as 101 digits
+  where it has 100. The count now comes from the decimal string, and the same
+  count sets the threshold below which q is printed in full.
+
+### Added
+- **`test_phase1` covers the segment-bitset branch of `is_prime_q`.** No range in
+  the test reached it: the scalar kernel is selected only for
+  `seg_even_start <= 2*p_small + 128`, and in the one range that qualified every
+  complement stayed below `small_high`, so the lookup always answered from
+  `d_small`. A counting probe recorded zero entries to that branch over a full
+  run. The same range at `p_small = 1e4` reaches it.
+
+- **CTest registration.** The five test binaries and a new `test_big_check` now
+  run under `ctest --output-on-failure`. `test_big_check` checks `big_check`
+  against the 48 published records, small-n edges, the search-limit exit,
+  thread-count determinism, expression input and exact digit counts. It reads the
+  record table out of `test_records.cpp` rather than copying it, and fails unless
+  all 48 records are parsed and each is a plausible (n, p) pair.
+
+- **`big_check` expression input.** n may be written `a^b`, `a^b+c` or `a^b-c`
+  and is evaluated with GMP, so large cases are reproducible from their command
+  lines. Evenness and n >= 4 are checked on the parsed value rather than on the
+  last character of the string. Adds `--p-max` (default 1e7) and `--quiet`.
+
+- **`big_check` summary line.** Every run ends with
+  `RESULT status=<found|bound> p=<p> q_digits=<d> candidates=<i> prp_calls=<k> threads=<t> time_s=<s>`.
+  `prp_calls` depends on scheduling and is reproducible only at a fixed thread
+  count; `p`, `q_digits` and `candidates` do not.
+
 ## [3.0.0] - 2026-09-09
 
 ### Fixed

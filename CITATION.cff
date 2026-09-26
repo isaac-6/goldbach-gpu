@@ -6,8 +6,8 @@ authors:
     orcid: "https://orcid.org/0000-0002-7612-5331"
 
 title: "GoldbachGPU: An Open Source GPU-Accelerated Framework for Verification of Goldbach's Conjecture"
-version: "3.0.0"
-date-released: 2026-09-09
+version: "3.1.0"
+date-released: YYYY-MM-DD
 abstract: "GPU-accelerated exhaustive verification of the binary Goldbach
   conjecture, with a device-resident segmented sieve and multi-GPU segment
   scheduling."
