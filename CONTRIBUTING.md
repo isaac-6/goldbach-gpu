@@ -14,5 +14,5 @@ If you have questions about the mathematics, the architecture, or how to adapt t
 ## Contributing Code
 1. Fork the repository.
 2. Create a new branch for your feature or optimization (`git checkout -b feature-gpu-sieve`).
-3. Ensure your code passes the automated validation suite (`cd tests && ./validation.sh`).
+3. Ensure your code passes the test suite (`cd build && ctest --output-on-failure`).
 4. Submit a Pull Request detailing the performance improvements or bug fixes.

@@ -156,7 +156,24 @@ target_link_libraries(test_phase1 PRIVATE goldbach_lib)
 set_target_properties(test_phase1 PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 
-# 9. analyse pmin
+# 10. BPSW negative control: every base-2 strong pseudoprime below 2^32
+add_executable(test_bpsw_spsp src/test_bpsw_spsp.cu)
+target_link_libraries(test_bpsw_spsp PRIVATE goldbach_lib OpenMP::OpenMP_CXX)
+# The generator's loops are OpenMP; nvcc must pass -fopenmp to the host
+# compiler for .cu sources, which OpenMP::OpenMP_CXX does not do.
+target_compile_options(test_bpsw_spsp PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:-Xcompiler=-fopenmp>)
+set_target_properties(test_bpsw_spsp PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+
+# 11. CPU segmented sieve and PrimeBitset against known pi(n)
+add_executable(test_sieve src/test_sieve.cpp)
+target_link_libraries(test_sieve PRIVATE goldbach_lib)
+add_executable(test_bitset src/test_bitset.cpp)
+target_link_libraries(test_bitset PRIVATE goldbach_lib)
+set_target_properties(test_sieve test_bitset PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+
+# 12. analyse pmin
 add_executable(analyze_pmin src/analyze_pmin.cpp)
 target_link_libraries(analyze_pmin PRIVATE goldbach_lib)
 set_target_properties(analyze_pmin PROPERTIES
@@ -170,6 +187,10 @@ add_test(NAME test_primality   COMMAND test_primality)
 add_test(NAME test_records     COMMAND test_records)
 add_test(NAME test_bitset_race COMMAND test_bitset_race)
 add_test(NAME test_phase1      COMMAND test_phase1)
+add_test(NAME test_bpsw_spsp   COMMAND test_bpsw_spsp)
+add_test(NAME test_sieve       COMMAND test_sieve)
+add_test(NAME test_bitset      COMMAND test_bitset)
+set_tests_properties(test_bpsw_spsp PROPERTIES TIMEOUT 600)
 
 # Shell-driven functional test for big_check. It reads the published p-record
 # table out of src/test_records.cpp rather than carrying its own copy, so the
@@ -185,6 +206,26 @@ add_test(NAME test_count_primes
          COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_count_primes.sh
                  $<TARGET_FILE:goldbach>)
 set_tests_properties(test_count_primes PROPERTIES TIMEOUT 600)
+
+# Negative control for the verified/unverified count: an exact number of
+# numbers must reach Phase 2, and the run must still succeed.
+add_test(NAME test_phase2_fallback
+         COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_phase2_fallback.sh
+                 $<TARGET_FILE:goldbach>)
+set_tests_properties(test_phase2_fallback PROPERTIES TIMEOUT 600)
+
+# --record-check to 1e8 against a brute-force record list.
+add_test(NAME test_record_check
+         COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_record_check.sh
+                 $<TARGET_FILE:goldbach>)
+set_tests_properties(test_record_check PROPERTIES TIMEOUT 600)
+
+# Parameter validation of goldbach, big_check and single_check.
+add_test(NAME test_cli
+         COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_cli.sh
+                 $<TARGET_FILE:goldbach> $<TARGET_FILE:big_check>
+                 $<TARGET_FILE:single_check>)
+set_tests_properties(test_cli PROPERTIES TIMEOUT 900)
 
 
 # --- Installation/Output ---

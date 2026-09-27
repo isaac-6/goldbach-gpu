@@ -2,12 +2,17 @@
 # test_count_primes.sh
 # Functional test for goldbach --count-primes.
 #
-# Three cases:
+# Five cases:
 #   1 1e9          pi(10^9)        = 50,847,534   (OEIS A006880)
 #   2 123456789    pi(123,456,789) = 7,027,260    (primesieve 12.12)
 #   3 segments     123,456,789 again with --seg-size=1000000, so the count is
 #                  assembled from 62 segments instead of 1; the --count-file
 #                  lines must tile [5, N] and sum, with 2 and 3, to pi(N)
+#   4 --start      123,456,789 from an odd --start=1001 (rounded to 1002), with
+#                  --batch-size=7: the primes up to START are added on the host
+#                  and the segments count only above it
+#   5 --start      pi(1,000,000,007) = 50,847,535 (primesieve 12.16) from
+#                  --start=65536 over 167 segments of 3,000,002
 #
 # At the default segment size case 2 is a single segment, so only case 3
 # exercises the segment-boundary arithmetic (each segment counting its own odd
@@ -46,13 +51,13 @@ check_pi() {
     if [ "$got" = "$want" ]; then ok "pi($n) = $got $*"; else bad "pi($n) = '$got', expected $want $*"; fi
 }
 
-echo "[1/3] pi(10^9)"
+echo "[1/5] pi(10^9)"
 check_pi 1000000000 50847534
 
-echo "[2/3] pi(123456789)"
+echo "[2/5] pi(123456789)"
 check_pi 123456789 7027260
 
-echo "[3/3] pi(123456789) from 62 segments, and the --count-file"
+echo "[3/5] pi(123456789) from 62 segments, and the --count-file"
 check_pi 123456789 7027260 --seg-size=1000000 --count-file="$TMP/counts.txt"
 if [ -f "$TMP/counts.txt" ]; then
     # Each line "A B count": A = 5 on the first line, then previous B + 2 (the
@@ -69,6 +74,12 @@ if [ -f "$TMP/counts.txt" ]; then
 else
     bad "count file was not written"
 fi
+
+echo "[4/5] pi(123456789) from --start=1001"
+check_pi 123456789 7027260 --seg-size=1000000 --start=1001 --batch-size=7
+
+echo "[5/5] pi(1000000007) from --start=65536"
+check_pi 1000000007 50847535 --seg-size=3000002 --start=65536
 
 if [ "$fails" -eq 0 ]; then echo "PASS"; exit 0; fi
 echo "FAIL ($fails)"; exit 1

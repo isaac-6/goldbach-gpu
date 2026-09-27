@@ -1,12 +1,21 @@
 // Differential test: GPU Phase 1 Goldbach verification vs. a CPU reference.
 //
 // The GPU side runs the production kernels from sieve_kernel.cuh and
-// phase1_kernel.cuh, wired up exactly as goldbach.cu wires them: sieve the
-// segment, then sweep the prime batches over the even numbers.
+// phase1_kernel.cuh, wired up as goldbach.cu wires them: the range is walked
+// in segments using the verifier's own segment_geometry(), each segment is
+// sieved, its padding word zeroed, and the prime batches swept over its even
+// numbers.
 //
 // The CPU side redoes the search independently -- segmented_sieve over
 // [n_low - p_small, n_high], then for each even n a straight ascending scan
-// for the first p with n - p prime.
+// for the first p with n - p prime. It knows nothing about segments.
+//
+// Coverage beyond the single-segment ranges:
+//   - ranges that span many segments, including a partial last segment and
+//     one where consecutive segments switch from the scalar to the transposed
+//     kernel;
+//   - batch sizes 1, 7 and 1000, so the verified state carries across many
+//     Phase 1 launches per segment.
 //
 // Exit 0 = agreement, 1 = mismatch.
 
@@ -19,6 +28,7 @@
 #include <cuda_runtime.h>
 #include "sieve_kernel.cuh"
 #include "phase1_kernel.cuh"
+#include "segment_geometry.hpp"
 #include "prime_bitset.hpp"
 
 using namespace goldbach;
@@ -78,9 +88,12 @@ static std::vector<uint32_t> cpu_phase1(uint64_t n_low, uint64_t n_high,
     return pmin;
 }
 
-// Returns number of disagreements; prints the first few.
+// Checks every even n in [n_low, n_high], walked in segments of seg_size even
+// numbers as goldbach.cu walks them from START = n_low to LIMIT = n_high, with
+// batch primes per Phase 1 launch. Returns the number of disagreements and
+// prints the first few.
 static uint64_t check_range(uint64_t n_low, uint64_t n_high, uint64_t p_small,
-                            bool verbose)
+                            uint64_t seg_size, uint64_t batch, bool verbose)
 {
     if (n_low % 2) n_low++;
     if (n_high % 2) n_high--;
@@ -88,12 +101,6 @@ static uint64_t check_range(uint64_t n_low, uint64_t n_high, uint64_t p_small,
     if (n_high < n_low) return 0;
 
     uint64_t even_count = (n_high - n_low) / 2 + 1;
-
-    // Segment geometry, as goldbach.cu computes it.
-    uint64_t q_low = (n_low > p_small ? n_low - p_small : 3);
-    if ((q_low & 1) == 0) q_low++;
-    uint64_t q_high = n_high + 1;
-    if ((q_high & 1) == 0) q_high++;
 
     uint64_t small_high = std::max(isqrt64(n_high) + 1, p_small);
     if (small_high % 2 == 0) small_high++;
@@ -109,40 +116,38 @@ static uint64_t check_range(uint64_t n_low, uint64_t n_high, uint64_t p_small,
     for (uint64_t p : small_primes)
         if (p <= p_small) gpu_primes.push_back(p);
 
+    // -------- CPU side --------
+    auto cpu_pmin = cpu_phase1(n_low, n_high, even_count, gpu_primes, p_small);
+
     // -------- GPU side --------
-    uint64_t num_odds  = (q_high - q_low) / 2 + 1;
-    uint64_t seg_words = (num_odds + 63) / 64;
-    size_t small_bytes = small_bitset.word_count() * sizeof(uint64_t);
+    // Buffers sized for the widest segment, as goldbach.cu sizes them.
+    uint64_t max_odds = 0;
+    for (uint64_t s = n_low; s <= n_high; s += 2 * seg_size)
+        max_odds = std::max(max_odds, segment_geometry(s, seg_size, n_high, p_small).num_odds);
+    uint64_t seg_words      = (max_odds + 63) / 64;
+    uint64_t max_ver_words  = (std::min(seg_size, even_count) + 63) / 64;
+    uint64_t p_batch_alloc  = std::max<uint64_t>(1, std::min(batch, (uint64_t)gpu_primes.size()));
+    size_t   small_bytes    = small_bitset.word_count() * sizeof(uint64_t);
 
     uint64_t *d_small = nullptr, *d_small_primes = nullptr;
     uint64_t *d_seg_bits = nullptr, *d_p_batch = nullptr;
     uint64_t *d_verified = nullptr;   // bitset: 1 bit per even number
-    uint64_t verified_words = (even_count + 63) / 64;
 
     CK(cudaMalloc(&d_small, small_bytes));
     CK(cudaMalloc(&d_small_primes, small_primes.size() * sizeof(uint64_t)));
     // +1 padding word for the transposed kernel's one-word overread.
     CK(cudaMalloc(&d_seg_bits, (seg_words + 1) * sizeof(uint64_t)));
-    CK(cudaMalloc(&d_p_batch, std::min(P_BATCH, (uint64_t)gpu_primes.size()) * sizeof(uint64_t)));
-    CK(cudaMalloc(&d_verified, verified_words * sizeof(uint64_t)));
+    CK(cudaMalloc(&d_p_batch, p_batch_alloc * sizeof(uint64_t)));
+    CK(cudaMalloc(&d_verified, max_ver_words * sizeof(uint64_t)));
 
     CK(cudaMemcpy(d_small, small_bitset.data(), small_bytes, cudaMemcpyHostToDevice));
     CK(cudaMemcpy(d_small_primes, small_primes.data(),
                   small_primes.size() * sizeof(uint64_t), cudaMemcpyHostToDevice));
-    CK(cudaMemset(d_verified, 0, verified_words * sizeof(uint64_t)));
-    CK(cudaMemset(d_seg_bits, 0, (seg_words + 1) * sizeof(uint64_t)));
 
     PrimeTest primeTest = PrimeTest::BPSW;
     CK(cudaMemcpyToSymbol(g_device_prime_test, &primeTest, sizeof(PrimeTest)));
 
     uint64_t sc = sieve_split_prime_count(small_primes.data(), small_primes.size());
-    launch_segment_sieve(q_low, q_high, d_small_primes,
-                         sc, small_primes.size() - sc, d_seg_bits,
-                         THREADS_PER_BLOCK, 0);
-    CK(cudaGetLastError());
-
-    // -------- CPU side --------
-    auto cpu_pmin = cpu_phase1(n_low, n_high, even_count, gpu_primes, p_small);
 
     // Sweep prime-list prefixes. Handing the production kernel only the first
     // K primes makes its verdict mean "p_min_idx < K", so comparing verdicts
@@ -151,42 +156,59 @@ static uint64_t check_range(uint64_t n_low, uint64_t n_high, uint64_t p_small,
     uint64_t prefixes[] = {1, 2, 3, 5, 10, 25, 100, 1000, (uint64_t)gpu_primes.size()};
 
     uint64_t mismatches = 0, shown = 0;
-    std::vector<uint64_t> gpu_verified(verified_words);
+    std::vector<uint64_t> gpu_verified(max_ver_words);
 
-    for (uint64_t K : prefixes) {
-        if (K > gpu_primes.size()) continue;
+    for (uint64_t seg_start = n_low; seg_start <= n_high; seg_start += 2 * seg_size) {
+        const SegmentGeometry geo = segment_geometry(seg_start, seg_size, n_high, p_small);
+        uint64_t ver_words = (geo.seg_even_count + 63) / 64;
+        uint64_t first_i   = (seg_start - n_low) / 2;   // index into cpu_pmin
 
-        CK(cudaMemset(d_verified, 0, verified_words * sizeof(uint64_t)));
-        for (uint64_t bi = 0; bi < K; bi += P_BATCH) {
-            uint64_t bsize = std::min(P_BATCH, K - bi);
-            CK(cudaMemcpy(d_p_batch, gpu_primes.data() + bi,
-                          bsize * sizeof(uint64_t), cudaMemcpyHostToDevice));
+        // Sieve the segment, then zero the word past its bits: the same stale
+        // padding goldbach.cu clears before the transposed kernel reads it.
+        CK(cudaMemset(d_seg_bits, 0xFF, (seg_words + 1) * sizeof(uint64_t)));  // stale junk
+        launch_segment_sieve(geo.q_low, geo.q_high, d_small_primes,
+                             sc, small_primes.size() - sc, d_seg_bits,
+                             THREADS_PER_BLOCK, 0);
+        CK(cudaGetLastError());
+        CK(cudaMemset(d_seg_bits + (geo.num_odds + 63) / 64, 0, sizeof(uint64_t)));
 
-            launch_goldbach_phase1(
-                d_small, small_high, d_seg_bits, q_low, q_high,
-                n_low, even_count, d_p_batch, bsize, d_verified,
-                p_small, THREADS_PER_BLOCK, 0);
-            CK(cudaGetLastError());
-        }
-        CK(cudaDeviceSynchronize());
-        CK(cudaMemcpy(gpu_verified.data(), d_verified,
-                      verified_words * sizeof(uint64_t), cudaMemcpyDeviceToHost));
+        for (uint64_t K : prefixes) {
+            if (K > gpu_primes.size()) continue;
 
-        for (uint64_t i = 0; i < even_count; i++) {
-            bool g = ((gpu_verified[i >> 6] >> (i & 63)) & 1ULL) != 0;
-            bool c = cpu_pmin[i] != NO_P && cpu_pmin[i] < K;
-            if (g != c) {
-                mismatches++;
-                if (verbose && shown < 5) {
-                    printf("    n=%llu  gpu=%s cpu=%s  (first %llu primes",
-                           (unsigned long long)(n_low + 2 * i),
-                           g ? "verified" : "unverified",
-                           c ? "verified" : "unverified",
-                           (unsigned long long)K);
-                    if (cpu_pmin[i] == NO_P) printf(", cpu found no p)\n");
-                    else printf(", cpu p_min=%llu at index %u)\n",
-                                (unsigned long long)gpu_primes[cpu_pmin[i]], cpu_pmin[i]);
-                    shown++;
+            CK(cudaMemset(d_verified, 0, ver_words * sizeof(uint64_t)));
+            for (uint64_t bi = 0; bi < K; bi += batch) {
+                uint64_t bsize = std::min(batch, K - bi);
+                CK(cudaMemcpy(d_p_batch, gpu_primes.data() + bi,
+                              bsize * sizeof(uint64_t), cudaMemcpyHostToDevice));
+
+                launch_goldbach_phase1(
+                    d_small, small_high, d_seg_bits, geo.q_low, geo.q_high,
+                    seg_start, geo.seg_even_count, d_p_batch, bsize, d_verified,
+                    p_small, THREADS_PER_BLOCK, 0);
+                CK(cudaGetLastError());
+            }
+            CK(cudaDeviceSynchronize());
+            CK(cudaMemcpy(gpu_verified.data(), d_verified,
+                          ver_words * sizeof(uint64_t), cudaMemcpyDeviceToHost));
+
+            for (uint64_t i = 0; i < geo.seg_even_count; i++) {
+                bool g = ((gpu_verified[i >> 6] >> (i & 63)) & 1ULL) != 0;
+                uint32_t ref = cpu_pmin[first_i + i];
+                bool c = ref != NO_P && ref < K;
+                if (g != c) {
+                    mismatches++;
+                    if (verbose && shown < 5) {
+                        printf("    n=%llu  gpu=%s cpu=%s  (segment at %llu, first %llu primes, batch %llu",
+                               (unsigned long long)(seg_start + 2 * i),
+                               g ? "verified" : "unverified",
+                               c ? "verified" : "unverified",
+                               (unsigned long long)seg_start,
+                               (unsigned long long)K, (unsigned long long)batch);
+                        if (ref == NO_P) printf(", cpu found no p)\n");
+                        else printf(", cpu p_min=%llu at index %u)\n",
+                                    (unsigned long long)gpu_primes[ref], ref);
+                        shown++;
+                    }
                 }
             }
         }
@@ -200,6 +222,19 @@ static uint64_t check_range(uint64_t n_low, uint64_t n_high, uint64_t p_small,
     return mismatches;
 }
 
+// One segment covering the whole range: the even count rounded up to even,
+// as SEG_SIZE must be.
+static uint64_t one_segment(uint64_t lo, uint64_t hi) {
+    uint64_t evens = (hi - lo) / 2 + 2;
+    return evens + (evens & 1);
+}
+
+static uint64_t segments_in(uint64_t lo, uint64_t hi, uint64_t seg_size) {
+    if (lo % 2) lo++;
+    if (lo < 4) lo = 4;
+    return ((hi - lo) / 2 + 1 + seg_size - 1) / seg_size;
+}
+
 int main() {
     uint64_t total = 0;
     const uint64_t SPAN = 2 * 200000;   // ~200k even numbers
@@ -209,16 +244,13 @@ int main() {
         {4,                4 + SPAN,                "from 4 (small-n edge)"},
         {1000000000ULL,    1000000000ULL + SPAN,    "1e9"},
         {100000000000ULL,  100000000000ULL + SPAN,  "1e11"},
-        // goldbach.cu walks segments of SEG_SIZE*2; this range straddles one
-        // such boundary at 2e8 with the default --seg-size=200000000.
-        {400000000ULL - SPAN / 2, 400000000ULL + SPAN / 2, "straddling segment boundary"},
     };
 
     for (auto& t : fixed) {
         printf("  [%s] [%llu, %llu]\n", t.name,
                (unsigned long long)t.lo, (unsigned long long)t.hi);
         fflush(stdout);
-        uint64_t m = check_range(t.lo, t.hi, P_SMALL, true);
+        uint64_t m = check_range(t.lo, t.hi, P_SMALL, one_segment(t.lo, t.hi), P_BATCH, true);
         printf("    -> %llu mismatches\n", (unsigned long long)m);
         total += m;
     }
@@ -237,18 +269,50 @@ int main() {
     // (4 <= 2*10^4 + 128) while dropping small_high to 10001, so the complements
     // up to ~400001 now exceed it and resolve against the segment bitset.
     const uint64_t P_SMALL_SCALAR = 10000;
-
-    struct { uint64_t lo, hi; const char* name; } scalar_cov[] = {
-        {4, 4 + SPAN, "from 4, p_small=1e4 (scalar segment-bitset path)"},
-    };
-
-    for (auto& t : scalar_cov) {
-        printf("  [%s] [%llu, %llu]\n", t.name,
-               (unsigned long long)t.lo, (unsigned long long)t.hi);
+    {
+        uint64_t lo = 4, hi = 4 + SPAN;
+        printf("  [from 4, p_small=1e4 (scalar segment-bitset path)] [%llu, %llu]\n",
+               (unsigned long long)lo, (unsigned long long)hi);
         fflush(stdout);
-        uint64_t m = check_range(t.lo, t.hi, P_SMALL_SCALAR, true);
+        uint64_t m = check_range(lo, hi, P_SMALL_SCALAR, one_segment(lo, hi), P_BATCH, true);
         printf("    -> %llu mismatches\n", (unsigned long long)m);
         total += m;
+    }
+
+    // -------------------------------------------------------
+    // Many segments, and many batches per segment.
+    // -------------------------------------------------------
+    // "switch": p_small = 1e4 and 5000-number segments from 4. Segments
+    //   starting at 4, 10004 and 20004 are <= 2*p_small + 128 and take the
+    //   scalar kernel; from 30004 on they take the transposed kernel, so the
+    //   routing changes between consecutive segments. The last is partial.
+    //   The scalar segments above 10001 reach q between small_high and q_low,
+    //   so is_prime_q's BPSW branch is exercised too.
+    // "1e9 multi": 50002-number segments (not a multiple of 64) over ~400k
+    //   even numbers at 1e9, all transposed, last one partial.
+    // Each runs with batch sizes 1, 7 and 1000 as well as the default, so the
+    // verified bits carry across up to one launch per prime.
+    struct { uint64_t lo, hi, p_small, seg_size; const char* name; } multi[] = {
+        {4,             4 + 2 * 60001,       P_SMALL_SCALAR, 5000,  "switch scalar->transposed"},
+        {1000000000ULL, 1000000000ULL + 2 * SPAN, P_SMALL,   50002, "1e9 multi-segment"},
+    };
+    const uint64_t batches[] = {P_BATCH, 1000, 7, 1};
+
+    for (auto& t : multi) {
+        for (uint64_t b : batches) {
+            // Batch 1 with the full 1e6 list is ~80k launches per segment;
+            // two segments of it are enough to show the carry-over.
+            uint64_t hi = t.hi;
+            if (b == 1 && t.p_small == P_SMALL) hi = t.lo + 4 * t.seg_size - 2 + 1000;
+            printf("  [%s, batch %llu] [%llu, %llu], %llu segments of %llu\n", t.name,
+                   (unsigned long long)b, (unsigned long long)t.lo, (unsigned long long)hi,
+                   (unsigned long long)segments_in(t.lo, hi, t.seg_size),
+                   (unsigned long long)t.seg_size);
+            fflush(stdout);
+            uint64_t m = check_range(t.lo, hi, t.p_small, t.seg_size, b, true);
+            printf("    -> %llu mismatches\n", (unsigned long long)m);
+            total += m;
+        }
     }
 
     std::mt19937_64 rng(20260908);
@@ -257,7 +321,7 @@ int main() {
     for (int i = 0; i < 20; i++) {
         uint64_t lo = 4 + (rng() % 100000000000ULL);
         uint64_t hi = lo + SPAN;
-        total += check_range(lo, hi, P_SMALL, false);
+        total += check_range(lo, hi, P_SMALL, one_segment(lo, hi), P_BATCH, false);
     }
 
     printf("\nTOTAL MISMATCHES: %llu\n", (unsigned long long)total);

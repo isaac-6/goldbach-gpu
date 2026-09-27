@@ -66,6 +66,7 @@
 #include "sieve_kernel.cuh"
 #include "phase1_kernel.cuh"
 #include "primality.cuh"
+#include "segment_geometry.hpp"
 
 using namespace goldbach;
 
@@ -353,15 +354,11 @@ void run_gpu_worker(
             uint64_t seg_start = g_next_segment_start.fetch_add(SEG_SIZE * 2, std::memory_order_relaxed);
             if (seg_start > LIMIT) break;
 
-            uint64_t seg_end = std::min(seg_start + SEG_SIZE * 2 - 2, LIMIT);
-            uint64_t seg_even_count = (seg_end - seg_start) / 2 + 1;
-
-            uint64_t q_low = (seg_start > P_SMALL ? seg_start - P_SMALL : 3);
-            if ((q_low & 1) == 0) q_low++;
-            uint64_t q_high = (seg_end < UINT64_MAX - 1) ? seg_end + 1 : seg_end;
-            if ((q_high & 1) == 0) q_high++;
-
-            uint64_t num_odds = (q_high - q_low) / 2 + 1;
+            const SegmentGeometry geo = segment_geometry(seg_start, SEG_SIZE, LIMIT, P_SMALL);
+            const uint64_t seg_even_count = geo.seg_even_count;
+            const uint64_t q_low          = geo.q_low;
+            const uint64_t q_high         = geo.q_high;
+            const uint64_t num_odds       = geo.num_odds;
 
             // A. Sieve Segment
             launch_segment_sieve(q_low, q_high, d_small_primes,
