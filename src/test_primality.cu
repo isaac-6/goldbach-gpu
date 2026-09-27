@@ -95,6 +95,21 @@ int main() {
         total += run_batch(v, "known large primes");
     }
 
+    // Primes whose Selfridge search needs more than 40 values of D. BPSW
+    // rejected them while the search was capped at 40 tries: 452980999 is the
+    // smallest (43 tries), 4294405021 needs 47. Perfect squares are the other
+    // side of that search (no D exists) and must stay composite, including
+    // 1093^2, a base-2 strong pseudoprime, and 4294967291^2, the largest
+    // square of a prime below 2^64.
+    {
+        std::vector<uint64_t> v = {
+            452980999ULL, 4294405021ULL,
+            1194649ULL, 12327121ULL,                     // 1093^2, 3511^2
+            4294836225ULL, 18446744030759878681ULL       // 65535^2, 4294967291^2
+        };
+        total += run_batch(v, "long Selfridge search, and squares");
+    }
+
     printf("\nTOTAL DISAGREEMENTS: %llu\n", (unsigned long long)total);
     if (total) { printf("FAIL\n"); return 1; }
     printf("PASS\n");

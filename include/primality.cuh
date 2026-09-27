@@ -5,6 +5,18 @@
 #pragma once
 #include <cstdint>
 #include <vector>
+#include <cmath>
+
+// Exact perfect-square test for any 64-bit n. The double square root is only
+// a starting point: it is clamped to 2^32 - 1, the largest root whose square
+// fits, and corrected in both directions with integer arithmetic.
+__host__ __device__ __forceinline__ bool is_perfect_square_u64(uint64_t n) {
+    uint64_t r = (uint64_t)sqrt((double)n);
+    if (r > 0xFFFFFFFFULL) r = 0xFFFFFFFFULL;
+    while (r * r > n) r--;
+    while (r < 0xFFFFFFFFULL && (r + 1) * (r + 1) <= n) r++;
+    return r * r == n;
+}
 
 // ---- device ----
 
@@ -159,10 +171,17 @@ __device__ bool gpu_is_prime_bpsw(uint64_t n) {
     if ((n & 1) == 0) return false;
     if (!gpu_sprp_base2(n)) return false;
 
-    // Find D via Method A* with proper termination
+    // Find D via Method A*: the first of 5, -7, 9, -11, ... with (D/n) = -1.
+    //
+    // For a perfect square no such D exists, so it is rejected first and the
+    // search then needs no cap: for every other odd n some D has (D/n) = -1.
+    // The search used to stop after 40 tries and call n a perfect square,
+    // which rejected primes needing more: 16 below 2^32, the smallest
+    // 452980999, up to 49 tries.
+    if (is_perfect_square_u64(n)) return false;
     int64_t D = 5;
     int step = 2;
-    for (int i = 0; i < 40; i++) {
+    for (;;) {
         int j = gpu_jacobi(D, n);
         if (j == -1) break;
         if (j == 0) {
@@ -174,9 +193,6 @@ __device__ bool gpu_is_prime_bpsw(uint64_t n) {
         D = -D - step;
         step = -step;
     }
-    // After 40 tries with no -1: n is a perfect square → composite
-    // (a perfect square is never prime; this guards the infinite loop)
-    if (gpu_jacobi(D, n) != -1) return false;
 
     int64_t P = 1, Q = (1 - D) / 4;
     if (Q == -1) { P = 5; Q = 5; }
@@ -315,9 +331,11 @@ inline bool cpu_is_prime_bpsw(uint64_t n) {
     if ((n & 1) == 0) return false;
     if (!cpu_sprp_base2(n)) return false;
 
+    // Same search as gpu_is_prime_bpsw: reject perfect squares, then no cap.
+    if (is_perfect_square_u64(n)) return false;
     int64_t D = 5;
     int step = 2;
-    for (int i = 0; i < 40; i++) {
+    for (;;) {
         int j = cpu_jacobi(D, n);
         if (j == -1) break;
         if (j == 0) {
@@ -329,7 +347,6 @@ inline bool cpu_is_prime_bpsw(uint64_t n) {
         D = -D - step;
         step = -step;
     }
-    if (cpu_jacobi(D, n) != -1) return false;
 
     int64_t P = 1, Q = (1 - D) / 4;
     if (Q == -1) { P = 5; Q = 5; }
