@@ -71,9 +71,15 @@ n = 76,903,574,497,118. All 22 match the published p-records of Oliveira e Silva
 et al., which are verified below 4·10<sup>18</sup>. The emitted set is a
 subsequence of the 54 published records below 10<sup>14</sup>, not all of them:
 the mechanism reports at most one record per segment, so a record sharing a
-segment with a larger one is masked. Every emitted record is nonetheless genuine,
-which is what makes the check meaningful — it is an external cross-check of
-minimal primes, not a completeness claim.
+segment with a larger one is masked. Every record emitted by this run is
+genuine, which is what makes the check meaningful; it is an external cross-check
+of minimal primes, not a completeness claim. That holds because of how the run
+was made: one GPU, from 4, and `--p-small` = 10<sup>6</sup>, far above the
+largest p_min, so no number reached the CPU fallback. Before v3.2.0 the fallback
+did not report p_min. With a `--p-small` below the largest p_min, records above
+it were lost and false records could follow; `--p-small=1020` to 10<sup>8</sup>
+printed n = 79,097,318 with p_min = 1009, which is not a record. v3.2.0 includes
+the fallback's p_min and rejects `--record-check` with any other `--start`.
 
 ---
 
@@ -122,8 +128,9 @@ is ever skipped, so the reported p is minimal for the given bound.
 Primality of q is decided by GMP 6.3 `mpz_probab_prime_p(q, 25)`, which performs
 trial division, then a Baillie-PSW probable-prime test, then `reps - 24`
 Miller-Rabin rounds -- one round beyond BPSW at this setting. A return of 2 means
-proven prime and is reported as "prime"; 1 means probable prime and is reported
-as "probable prime (BPSW)".
+proven prime; q is reported as "prime" only then and only if q < 2^64. Otherwise
+it is reported as "probable prime (BPSW)", and the verdict reads "Goldbach holds
+for this n if q is prime".
 
 Three exit statuses:
 
@@ -161,8 +168,9 @@ Practical limit: each GMP primality test scales steeply in digit count.
 
 AMD Ryzen 7 9800X3D, 16 threads. Mean ± sample standard deviation over three runs.
 
-Every q above was confirmed prime with PARI/GP 2.17.3 `ispseudoprime`, an
-independent Baillie-PSW implementation.
+Every q above was confirmed as a probable prime with PARI/GP 2.17.3
+`ispseudoprime`, an independent Baillie-PSW implementation. That is a second
+probable-prime test, not a proof of primality.
 
 Most candidates are rejected by trial division inside `mpz_probab_prime_p` at
 small cost; the few whose complement reaches BPSW account for nearly all of the
@@ -181,7 +189,8 @@ Done:
 - Range verification to 10^14 on a single RTX 5090
 - A record check against the published p-records of Oliveira e Silva et al.
 - An arbitrary-precision single-number checker (minimal p, up to 10,001 digits)
-- A test suite under ctest, checked by fault injection
+- A test suite under ctest. Two injected faults, a count kernel that reports
+  nothing unverified and a strong Lucas step that always passes, each fail it
 
 Planned:
 - Range verification to 10^15 on multiple GPUs

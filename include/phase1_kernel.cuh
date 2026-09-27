@@ -50,8 +50,9 @@ __device__ bool is_prime_q(
 //
 // d_verified is a bitset: bit j of word w is the even number
 // seg_even_start + 2*(64*w + j). One thread per even number means 64 threads
-// share a word, so the set must be an atomicOr. This path runs only for the
-// first segment or two, so the atomic costs nothing that matters.
+// share a word, so the set must be an atomicOr. This path runs only for
+// segments starting at or below 2*P_SMALL + 128, a few segments at the default
+// sizes, so the atomic costs nothing that matters.
 //
 // CRITICAL INVARIANTS:
 // 1. p_batch MUST be sorted in ascending order (allows early termination)
@@ -77,7 +78,7 @@ __device__ bool is_prime_q(
 // - p > n/2 uses division (safe for all uint64_t values)
 // - n - p cannot underflow because p <= n/2 < n
 // -------------------------------------------------------
-// RECORD_MAX_SHIFT: --record-check packs (p_min, index) into one 64-bit word
+// RECORD_IDX_BITS: --record-check packs (p_min, index) into one 64-bit word
 // so a single atomicMax yields the largest p_min and, among ties, the smallest
 // index. The index is stored complemented so that larger encoded value means
 // smaller n. Requires SEG_SIZE and P_SMALL to fit in 32 bits, asserted on the

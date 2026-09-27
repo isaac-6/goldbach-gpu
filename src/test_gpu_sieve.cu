@@ -71,17 +71,18 @@ static uint64_t check_range(uint64_t q_low, uint64_t q_high,
 int main() {
     uint64_t total = 0;
 
-    // A prime only reaches large_prime_sieve_kernel when it is >= TILE_ODDS,
-    // and only marks anything when p*p <= q_high. Since check_range is handed
-    // primes up to isqrt(hi), that path is exercised only for hi >= TILE_ODDS^2
-    // (~1.07e9 at the default). The ranges below 2^32 therefore cover the tiled
-    // kernel alone; the high ranges are what gate the large-prime split.
+    // A prime only reaches large_prime_sieve_kernel when it is >=
+    // SPLIT_THRESHOLD (65536 at the default), and only marks anything when
+    // p*p <= q_high. The smallest such prime is 65537, whose first mark is
+    // 65537^2 = 4295098369, so ranges ending below that cover the tiled kernel
+    // alone. "straddling 2^32" reaches just past it; the 1e11 and 1e12 ranges
+    // give the large-prime kernel real work.
     struct { uint64_t lo, hi; const char* name; } fixed[] = {
         {3,          1000000,     "from 3 (q_low edge)"},
         {999983,     2000000,     "small offset"},
-        {4294967291ULL, 4295000000ULL, "straddling 2^32"},
-        {1000000000ULL, 1000200000ULL, "1e9"},
-        {1073741824ULL, 1074141824ULL, "TILE_ODDS^2 boundary"},
+        {4294967291ULL, 4295400000ULL, "straddling 2^32, past 65537^2"},
+        {1000000000ULL, 1000200000ULL, "1e9 (tiled only)"},
+        {1073741824ULL, 1074141824ULL, "2^30 (tiled only)"},
         {100000000000ULL, 100000400000ULL, "1e11"},
         {1000000000000ULL, 1000000400000ULL, "1e12"},
     };
@@ -99,8 +100,9 @@ int main() {
     std::mt19937_64 rng(20260907);
     printf("  [randomized] 50 ranges below 1e9, 25 up to 1e12\n");
     for (int i = 0; i < 75; i++) {
-        // The first 50 stay low (tiled kernel only); the rest are drawn high
-        // enough that the large-prime kernel has work to do.
+        // The first 50 stay low (tiled kernel only). The rest are drawn from
+        // [2^30, 2^30 + 1e12); all but those below 65537^2 ~ 4.3e9 (about 0.3%
+        // of draws) give the large-prime kernel work.
         uint64_t lo = (i < 50) ? 3 + (rng() % 1000000000ULL)
                                : 1073741824ULL + (rng() % 1000000000000ULL);
         uint64_t hi = lo + 100000 + (rng() % 400000);

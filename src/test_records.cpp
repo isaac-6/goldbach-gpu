@@ -1,10 +1,12 @@
 // test_records.cpp
-// Validates the pipeline's notion of p_min against an EXTERNAL, independently
-// computed source.
+// Validates the project's definition of p_min -- the CPU computation below,
+// which the other record tests share as their reference -- against an
+// EXTERNAL, independently computed source. It does not run the GPU pipeline;
+// test_record_check does, comparing goldbach --record-check against records.
 //
-// Every defect found while developing this verifier failed in the direction of
-// false success, and "no counterexample found" is the same output whether the
-// run was correct or broken. The rest of the test suite compares our GPU code
+// Several defects found while developing this verifier failed in the direction
+// of false success, and "no counterexample found" is the same output whether
+// the run was correct or broken. Much of the test suite compares our GPU code
 // against our own CPU code; agreement there does not rule out a shared
 // misconception. This test compares against numbers computed by someone else,
 // on different hardware, with different software.
@@ -108,7 +110,7 @@ static const size_t NUM_RECORDS = sizeof(RECORDS) / sizeof(RECORDS[0]);
 // most likely to hide.
 static const uint64_t WINDOW = 100000;
 
-// Enough to cover every tabulated p_min below 10^13 (largest is 3137).
+// Enough to cover every tabulated p_min below 10^13 (largest is 3917).
 static const uint64_t P_LIMIT = 4000;
 
 int main(int argc, char** argv) {

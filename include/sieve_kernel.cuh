@@ -208,11 +208,12 @@ __global__ void tiled_sieve_segment_kernel(
 // -------------------------------------------------------
 // Large-prime sieve: one thread per prime, straight to global memory.
 // -------------------------------------------------------
-// A prime p >= TILE_ODDS marks at most one byte in any given tile, yet the
-// tiled kernel above pays three 64-bit divisions for it in every tile --
-// and 64-bit division is emulated on NVIDIA hardware. Splitting those primes
-// out moves that cost from once-per-tile-per-prime to once-per-segment-per-
-// prime.
+// Primes from SPLIT_THRESHOLD up come here. At the defaults that is p >= 65536
+// > TILE_ODDS, and such a prime marks at most one byte in any given tile, yet
+// the tiled kernel above pays two 64-bit divisions for it in every tile (the
+// first-multiple remainder and the step count), and 64-bit division is
+// emulated on NVIDIA hardware. Splitting those primes out moves that cost from
+// once-per-tile-per-prime to once-per-segment-per-prime.
 //
 // The marking is sparse: over a ~4e8 wide q span a prime near 1e6 marks ~200
 // positions and one near 1e5 marks ~2000, scattered across the whole segment

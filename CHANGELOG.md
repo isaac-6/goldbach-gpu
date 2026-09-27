@@ -1,3 +1,90 @@
+## [3.2.0] - Unreleased
+
+### Fixed
+- **False success when a segment had 2^32 or more unverified numbers.** The
+  per-segment unverified count was 32-bit and wrapped to 0, so Phase 2 was
+  skipped: `goldbach 8589934722 --seg-size=4294967360 --p-small=0` reported
+  every even number verified after testing no prime. The count is now 64-bit,
+  and the count kernel also counts verified numbers. Every segment must satisfy
+  verified + unverified = its size, and its launch is checked; anything else
+  ends the run with exit status 1.
+- **Sieve overflow near 2^64.** The first multiple `(q_low + p - 1) / p * p`
+  wrapped once q_low > 2^64 - p, so the prime was skipped and its multiples
+  stayed marked prime (8,632 composites in one segment at N = 2^64 - 2^30). It
+  is now computed as an offset from q_low that cannot overflow.
+- **Segment counter wrap.** For N within 2*SEG*(G+1) of 2^64 the counter wrapped
+  back to small numbers and the run never finished. N is now bounded (below).
+- **Baillie-PSW rejected some primes (present since v2.1.0).** The Selfridge
+  search for D stopped after 40 tries and called n a perfect square. Some
+  primes need more. Below 2^32 there are 16, needing 43 to 49 tries:
+  452980999, 505313251, 1143791191, 1272463669, 1373861479, 1582819291,
+  2055693949, 2283397141, 2287905811, 2366713651, 2410622971, 3441877651,
+  3703811101, 3823259311, 4131973231 and 4294405021. Device and host BPSW
+  called them composite.
+
+  Squares are now detected exactly before the search, and the search has no
+  cap. Over every odd n below 2^32, BPSW now agrees with Miller-Rabin.
+
+  The error ran one way only: a prime reported composite, never the reverse.
+  It could therefore cost a Phase 2 fallback, or at worst a false "no
+  partition" failure, but never a false success. `goldbach` reaches BPSW only
+  under the default `--primetest=BPSW`, and only in two places:
+  - `is_prime_q` in the scalar Phase 1 kernel, for q in
+    (small_high, q_low), which is at most (P_SMALL, P_SMALL + 128]. Only
+    segments starting in (P_SMALL + small_high, 2*P_SMALL + 128] get there.
+  - Phase 2, for q > 10^8.
+
+  No reported result depended on it. Every published run used
+  `--p-small=1000000`, so the kernel path saw only q <= 1000128, and every run
+  reported 0 Phase 2 fallbacks, so the host path was never taken.
+  `single_check` uses its own Miller-Rabin and `big_check` uses GMP; neither
+  was affected.
+- **`--record-check` lost records above `--p-small`.** Numbers resolved by
+  Phase 2 did not report p_min, so the maximum could be missed and non-records
+  printed (n = 79,097,318, p_min = 1009, with `--p-small=1020`). Phase 2 now
+  reports p_min. The flag is rejected with a `--start` other than 4, where its
+  maxima are not records.
+- **Parameter validation.** Rejected with exit status 1:
+  - `--batch-size` of 0 (hung) or above 2^32;
+  - `--p-small` below 3;
+  - `--seg-size` that is 0, odd or at least 2^32;
+  - N above 2^64 - 2^33, or N + 2*SEG*(G+1) at or above 2^64;
+  - extra positional arguments and unknown options;
+  - negative or malformed numbers, which used to wrap or abort on an uncaught
+    exception.
+
+  N = 4 and START = N are now accepted.
+- **`big_check`.** `--p-max` is capped at 4e9. 2^64 - 1 used to crash, and an
+  allocation failure now exits 1. q above 2^64 is reported as a probable
+  prime, never as prime.
+- **`single_check`.** Its kernel launch is now checked, and a counterexample
+  now exits 2 instead of 0.
+- Scalar Phase 1 reads `d_verified` with a relaxed atomic load, and the tiled
+  sieve clears bytes with relaxed block-scope atomic stores, removing two formal
+  data races. `TILE_ODDS` is checked at compile time, and the `--progress`
+  thread no longer outlives a variable it read.
+
+### Changed
+- A Phase 2 failure reads "no partition with p ≤ 10^8 found for n = …": Phase 2
+  searches p ≤ 10^8, so this is a search limit, not a counterexample.
+
+### Added
+- `--count-primes` and `--count-file`.
+- Tests:
+  - `test_bpsw_spsp`: every base-2 strong pseudoprime below 2^32;
+  - `test_phase2_fallback`: an exact Phase 2 count;
+  - `test_record_check`: `--record-check` against brute-force records to 1e8;
+  - `test_cli`: command-line validation;
+  - `test_count_primes`, which now also runs from a non-default `--start`;
+  - `test_phase1`, which now covers multiple segments and batch sizes 1, 7
+    and 1000;
+  - `test_sieve` and `test_bitset`, now registered with CTest.
+- `tests/run_sanitizers.sh` (not part of ctest).
+
+### Removed
+- `tests/validation.sh` and `tests/validation_gpu.sh`, which checked outputs
+  that no longer exist. `test_cli` covers their cases.
+
 ## [3.1.0] - 2026-10-26
 
 ### Changed

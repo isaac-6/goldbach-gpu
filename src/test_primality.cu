@@ -1,6 +1,8 @@
 // Cross-checks BPSW against the 12-base deterministic Miller-Rabin.
 // MR is sound across the full 64-bit range, so it serves as oracle.
-// Emphasis on n > 2^63, where the Lucas halving steps overflow.
+// Emphasis on n > 2^63, where the Lucas halving steps once overflowed.
+// Random inputs almost never include a base-2 strong pseudoprime, so this
+// barely exercises the strong Lucas step; test_bpsw_spsp does.
 //
 // Exit 0 = agreement, 1 = disagreement.
 
@@ -41,7 +43,8 @@ static uint64_t run_batch(const std::vector<uint64_t>& vals, const char* label) 
 
     uint64_t bad = 0, shown = 0;
     for (int i = 0; i < count; i++) {
-        // Host BPSW must agree too - it has the same halving bug.
+        // Host BPSW must agree too: it shares the Lucas halving step that once
+        // overflowed above 2^63.
         bool host_bpsw = cpu_is_prime_bpsw(vals[i]);
         bool host_mr   = cpu_miller_rabin(vals[i]);
         if (mr[i] != bpsw[i] || host_bpsw != host_mr || (mr[i] != 0) != host_mr) {
@@ -63,7 +66,7 @@ int main() {
     uint64_t total = 0;
     std::mt19937_64 rng(20260907);
 
-    // Below 2^63: expected to pass even before the fix.
+    // Below 2^63, where the old halving overflow could not occur.
     {
         std::vector<uint64_t> v;
         for (int i = 0; i < 200000; i++) v.push_back((rng() % (1ULL << 62)) | 1ULL);

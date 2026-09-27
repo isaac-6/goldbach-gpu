@@ -128,13 +128,27 @@ Verifies every even number from 4 to the given limit. Useful options:
 | Option | Effect |
 |---|---|
 | `--gpus=N` | Use N GPUs (`-1` for all). Default 1. |
-| `--start=N` | Begin at N rather than 4, for splitting work across machines. |
-| `--seg-size=N` | Even integers per segment. Derived from free VRAM if omitted. |
-| `--p-small=N` | Prime search bound for the GPU phase. Default 10<sup>6</sup>. |
-| `--batch-size=N` | Primes uploaded per Phase 1 kernel launch. Default 10<sup>5</sup>. |
-| `--record-check` | Print each new maximum p<sub>min</sub> as it is found. |
+| `--start=N` | Begin at N rather than 4, for splitting work across machines. At most the limit. |
+| `--seg-size=N` | Even integers per segment: even, below 2<sup>32</sup>. Derived from free VRAM if omitted. |
+| `--p-small=N` | Prime search bound for the GPU phase, 3 to 4·10<sup>9</sup>. Default 10<sup>6</sup>. |
+| `--batch-size=N` | Primes uploaded per Phase 1 kernel launch, 1 to 2<sup>32</sup>. Default 10<sup>5</sup>. |
+| `--record-check` | Print each new maximum p<sub>min</sub> as it is found. Requires the default `--start`. |
+| `--count-primes` | Also print π(limit), counted from the segment sieve. |
+| `--count-file=F` | With `--count-primes`, write each segment's range and prime count to F. |
 | `--progress` | Live throughput and estimated completion. |
 | `--primetest=bpsw\|mr` | Primality fallback. Default BPSW. |
+
+Invalid values, including negative numbers and unknown options, are rejected
+with exit status 1 before any work starts.
+
+### Supported range
+
+The limit N may be any integer from 4 to 2<sup>64</sup> − 2<sup>33</sup> =
+18,446,744,065,119,617,024; an odd N verifies up to N − 1. The bound keeps every
+segment boundary, sieve bound and primality-test operand below 2<sup>64</sup>.
+With G GPUs, N + 2·`--seg-size`·(G + 1) must also stay below 2<sup>64</sup>, so
+that the shared segment counter cannot wrap; the program checks both and refuses
+anything outside them. Time, not arithmetic, is the practical limit.
 
 A representative invocation:
 
@@ -157,16 +171,21 @@ bound, which is why the CPU fallback is never reached.
 The range is processed in segments. For each segment the GPU builds a bitset of
 the primes needed to answer those queries, then verifies every even number in the
 segment against it. Both steps run entirely on the device; the host sends a
-prime list and receives a 4-byte count per segment.
+prime list and receives two counts per segment, verified and unverified, which
+must add up to the segment's size.
 
 Two ideas account for most of the performance:
 
 **Byte-wide marking during sieving.** Clearing a bit is a read-modify-write, so
 concurrent threads sieving different primes into the same 64-bit word lose each
 other's updates unless the operation is atomic, and the atomic serialises them.
-Giving each candidate its own byte during construction makes marking a plain
-store of a constant, which needs no atomic because concurrent stores of the same
-value cannot conflict. The result is packed back to bits before leaving shared
+Giving each candidate its own byte during construction makes marking a store of
+a constant rather than a read-modify-write. Two threads can still store to the
+same byte, and under the CUDA memory model two plain stores to one location
+form a data race even when they store the same value. Each mark is therefore a
+relaxed, block-scoped atomic byte store (`st.relaxed.cta.shared.b8`), which is
+race-free and compiles to the same single-byte store instruction, with no
+read-modify-write. The result is packed back to bits before leaving shared
 memory, so the stored representation is unchanged.
 
 **Transposed verification.** For 64 consecutive even numbers and a fixed prime
@@ -181,8 +200,14 @@ Sieving primes are also split by size, so that the large majority which mark at
 most one position per tile are handled once per segment rather than rescanned for
 every tile.
 
-A CPU fallback exists for any number the GPU phase does not resolve. It has not
-been reached at any limit tested.
+A CPU fallback (Phase 2) handles any number the GPU phase does not resolve. It
+searches primes p ≤ 10<sup>8</sup>, so it is exhaustive for n ≤ 2·10<sup>8</sup>;
+if it finds nothing, the run ends with "no partition with p ≤ 10^8 found for
+n = …" and exit status 1, a search-limit result rather than a counterexample. It
+has not been reached at any limit tested with the default `--p-small`. Every
+segment must account for all of its numbers as verified or unverified before
+the run can succeed; any shortfall, or any CUDA error, ends the run with exit
+status 1.
 
 ---
 
@@ -190,19 +215,25 @@ been reached at any limit tested.
 
 Verification is only as good as its checks, and a verifier that is silently wrong
 produces exactly the same output as one that is right. The repository therefore
-carries six tests, each comparing a component against an independent
-implementation rather than against itself:
+carries thirteen tests, most comparing a component against an independent
+implementation or published data rather than against itself:
 
 | Test | What it checks |
 |---|---|
 | `test_gpu_sieve` | GPU segment sieve against an independently written CPU sieve, over fixed and randomised ranges including boundary cases. |
-| `test_phase1` | GPU verification against a CPU reference. Compares across prime-list prefixes, so the comparison resolves *which* prime succeeded rather than the saturated yes/no verdict. |
+| `test_phase1` | GPU verification against a CPU reference. Compares across prime-list prefixes, so the comparison resolves *which* prime succeeded rather than the saturated yes/no verdict. Walks ranges in segments with the verifier's own segment geometry, including a partial last segment and a switch between the two kernels, at batch sizes down to one prime per launch. |
 | `test_primality` | Baillie–PSW against the 12-base deterministic Miller–Rabin, with emphasis above 2<sup>63</sup>. |
+| `test_bpsw_spsp` | Every base-2 strong pseudoprime below 2<sup>32</sup> (2,314, generated independently) must be rejected by Baillie–PSW on device and host, and 126,897 primes accepted. |
 | `test_bitset_race` | Repeated parallel bitset construction against a single-threaded reference, at both word-aligned and misaligned thread boundaries. |
-| `test_records` | Minimal primes against 48 published record values computed independently by Oliveira e Silva. |
+| `test_sieve`, `test_bitset` | The CPU segmented sieve and the prime bitset against known π(n). |
+| `test_records` | The CPU definition of p<sub>min</sub> against 48 published record values computed independently by Oliveira e Silva. |
+| `test_record_check` | `goldbach --record-check` to 10<sup>8</sup> at three parameter sets against a brute-force record list: the output must be a subsequence and include the maximum. |
+| `test_count_primes` | `goldbach --count-primes` against known π(N), over many segments and from a non-default `--start`. |
+| `test_phase2_fallback` | With `--p-small=3`, exactly 421,501 numbers to 10<sup>6</sup> must reach the CPU fallback, and the run must still succeed. |
+| `test_cli` | Every invalid command line of `goldbach`, `big_check` and `single_check` exits 1 with its message; edge cases still run. |
 | `test_big_check` | `big_check` against the same 48 published records, plus small-*n* edges, the search-limit exit, thread-count determinism and expression input. Reads the record table out of `test_records.cpp` rather than copying it. |
 
-All six are registered with CTest, so the whole suite runs with:
+All are registered with CTest, so the whole suite runs with:
 
 ```bash
 ctest --output-on-failure
@@ -212,7 +243,7 @@ or individually:
 
 ```bash
 ./bin/test_gpu_sieve && ./bin/test_phase1 && ./bin/test_primality \
-  && ./bin/test_bitset_race && ./bin/test_records
+  && ./bin/test_bpsw_spsp && ./bin/test_bitset_race && ./bin/test_records
 ```
 
 The `--record-check` flag extends this to a live run. It reports each new maximum
@@ -223,6 +254,11 @@ emitted 22 such records, all matching the published table, six of them above
 that version, so it is off by default and the timings above are measured without
 it.
 
+The flag reports at most one record per segment, so its output is a
+subsequence of the true records. Numbers resolved by the CPU fallback contribute
+their p<sub>min</sub> too, so records above `--p-small` are not lost. Records are
+defined from 4, so the flag requires the default `--start`.
+
 Under `--gpus>1` segments complete out of order, so a later segment can raise the
 running maximum and permanently suppress a genuine earlier record. The surviving
 set is scheduling-dependent. **Use a single GPU when the record sequence is being
@@ -230,9 +266,16 @@ used for validation**; multi-GPU runs remain correct for verification itself.
 
 Primality is decided by a bitset lookup wherever possible, and otherwise by
 Baillie–PSW or a 12-base deterministic Miller–Rabin. The Miller–Rabin base set is
-*proved* deterministic for all *n* < 2<sup>64</sup>; Baillie–PSW is verified to
-have no counterexample below 2<sup>64</sup> but has no such proof, which is why
-`test_primality` cross-checks it against Miller–Rabin rather than trusting it.
+*proved* deterministic for all *n* < 2<sup>64</sup>. Baillie–PSW has no such
+proof. The published search finding no counterexample below 2<sup>64</sup> used
+Selfridge's parameter choice, whereas this implementation uses the Method A*
+variant (P = Q = 5 when D = 5), and we have not confirmed that the search covers
+it. Below 2<sup>32</sup> it rejects every base-2 strong pseudoprime
+(`test_bpsw_spsp`), the only composites that could pass it, and in a one-off
+exhaustive run it agreed with Miller–Rabin on every odd number there. Above
+2<sup>32</sup>, `test_primality` cross-checks it against Miller–Rabin on sampled
+inputs.
+`--primetest=mr` selects the proved test.
 
 ---
 
@@ -294,8 +337,10 @@ src/goldbach.cu           Main verifier
 include/sieve_kernel.cuh  Segment sieve (tiled and large-prime kernels)
 include/phase1_kernel.cuh Verification kernels (transposed and scalar)
 include/primality.cuh     Miller-Rabin and Baillie-PSW, device and host
-src/test_*.c*             The five test binaries described above
-tests/test_big_check.sh   Functional test for big_check (sixth test)
+include/segment_geometry.hpp  Segment bounds and sieved range, shared with test_phase1
+src/test_*.c*             The test binaries described above
+tests/test_*.sh           The shell-driven tests described above
+tests/run_sanitizers.sh   compute-sanitizer runner (not part of ctest)
 src/analyze_pmin.cpp      Distribution of minimal primes; used to size the
                           search bound and to predict kernel cost
 ```

@@ -1,50 +1,41 @@
 // goldbach.cu
-// v2.0.0 -- 2026-03-05
-//
-// GPU Goldbach range verifier
-// This function gets updated with the best version of the GPU code.
+// GPU Goldbach range verifier (v3.2.0)
 //
 // Algorithm:
 //
-//   Build small primes up to small_high (>= max(P_SMALL, sqrt(LIMIT))).
+//   Build small primes up to small_high (>= max(P_SMALL, isqrt(LIMIT) + 1)).
 //
-//   For each segment [A, B] of even numbers:
+//   For each segment [A, B] of even numbers (segment_geometry.hpp):
 //     1) GPU sieve odd q in [q_low, q_high], where:
-//          q_low  = max(3, A - P_SMALL), odd
-//          q_high = B + 1, odd
-//     2) Phase 1 (GPU): for each prime p in [2, P_SMALL],
-//          mark all even n in [A, B] as verified if n-p is prime.
-//          q = n-p checked via:
-//            - small bitset (q <= small_high)
-//            - segment bitset (q_low <= q <= q_high)
-//            - Miller-Rabin otherwise
-//     3) Phase 2 (CPU fallback): any n still unverified after Phase 1
-//          is checked using optimized sieve (up to 10^8) + Miller-Rabin.
+//          q_low  = A - P_SMALL (3 if that is not positive), made odd
+//          q_high = B + 1
+//     2) Phase 1 (GPU): for each prime p <= P_SMALL, ascending, mark every
+//          even n in [A, B] with n - p prime as verified. Segments starting
+//          above 2*P_SMALL + 128 use the transposed kernel, which reads q from
+//          the segment bitset alone. Lower segments use the scalar kernel,
+//          which checks q against:
+//            - the small bitset (q <= small_high)
+//            - the segment bitset (q_low <= q <= q_high)
+//            - BPSW or Miller-Rabin (--primetest) otherwise
+//     3) Count verified and unverified numbers. They must sum to the segment
+//          size, or the run aborts.
+//     4) Phase 2 (CPU): each unverified n is checked against primes
+//          p <= 10^8, with q tested by binary search below 10^8 and by BPSW or
+//          Miller-Rabin above. Finding nothing ends the run with "no partition
+//          with p <= 10^8", a search-limit result.
 //
-// Correctness guarantee:
-//   Every even n in [4, LIMIT] is verified by Phase 1 or Phase 2.
+// Success is printed only if every segment passed step 3 and no CUDA call,
+// kernel launch or Phase 2 check failed.
 //
-// CRITICAL LIMITS:
-//   - P_SMALL must be <= 4,000,000,000 (~4 billion) to prevent p*p overflow
-//   - LIMIT is theoretically up to 2^64-1, but practical limits:
-//     * GPU VRAM constrains SEG_SIZE 
-//     * Integer sqrt computed exactly using binary search (no double loss)
-//     * Phase 2 now uses sieve + Miller-Rabin
-// 
-// MULTI-GPU ARCHITECTURE:
-//   - Lock-free work queue for dynamic load balancing
-//   - Each GPU processes independent segments
-//   - Thread-safe logging and failure detection
-//   - Exception-safe resource cleanup
+// LIMITS (enforced in main; see MAX_LIMIT):
+//   - 4 <= LIMIT <= 2^64 - 2^33, and LIMIT + 2*SEG_SIZE*(GPUs+1) < 2^64
+//   - SEG_SIZE even, 2 <= SEG_SIZE < 2^32
+//   - 3 <= P_SMALL <= 4,000,000,000
+//   - 1 <= batch size <= 2^32
 //
-// PERFORMANCE CHARACTERISTICS:
-//   - Phase 1: 10^12 in 36.5 seconds on RTX 5090. With 2x 5090, it took 19 seconds.
-//   - Phase 2: never reached on tested inputs due to effective Phase 1 filtering
-//   - Memory: ~200 MB with  --seg-size=200000000 --p-small=1000000 --batch-size=2000000
-//
-// RANGE:
-//   This implementation is mathematically sound for
-//   verification from 4 to 1.8 * 10^19 (limited by time).
+// MULTI-GPU: one host thread per GPU claims segments from a shared atomic
+// counter, so each segment is processed exactly once. Records under
+// --record-check are scheduling-dependent with more than one GPU.
 
 #include <cuda_runtime.h>
 #include <cstdint>
@@ -312,8 +303,8 @@ void run_gpu_worker(
         CUDA_CHECK(cudaMemcpyAsync(d_small, small_bitset.data(), small_bytes, cudaMemcpyHostToDevice, stream));
 
         uint64_t small_prime_count = small_primes.size();
-        // Split the prime list at TILE_ODDS once: primes below it are worth a
-        // per-tile scan, the rest are not (see large_prime_sieve_kernel).
+        // Split the prime list at SPLIT_THRESHOLD once: primes below it go to
+        // the tiled kernel, the rest to large_prime_sieve_kernel.
         uint64_t sieve_small_count =
             sieve_split_prime_count(small_primes.data(), small_prime_count);
         uint64_t sieve_large_count = small_prime_count - sieve_small_count;
