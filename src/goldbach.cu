@@ -151,29 +151,68 @@ struct Options {
 // -------------------------------------------------------
 // GPU Kernels
 // -------------------------------------------------------
-// One thread per word of the d_verified bitset; unverified = 64 - popcount.
+// One thread per word of the d_verified bitset. Counts BOTH the verified and
+// the unverified numbers of the segment into d_counts[COUNT_VERIFIED] and
+// d_counts[COUNT_UNVERIFIED]. The host requires the two to sum to
+// seg_even_count and treats anything else as a system error. That makes this
+// gate fail closed: a launch that did not run, a grid that missed words, or a
+// counter that wrapped all leave the sum short of seg_even_count, rather than
+// reading as "0 unverified" and skipping Phase 2.
 //
-// The final word's bits past seg_even_count are masked to 1 here rather than
-// assumed set. The transposed kernel does leave them set, but the scalar
-// kernel sets bits one at a time and leaves them clear -- an unguarded
-// popcount would then report those as unverified and trigger a spurious
-// Phase 2 fallback on every scalar-path segment.
+// The counters are 64-bit. The unverified count used to be a uint32_t, which
+// wrapped once a segment held 2^32 unverified numbers and then read as 0:
+// Phase 2 was skipped and success printed with nothing checked.
+//
+// Only the segment's own bits are counted. The final word's bits past
+// seg_even_count are masked off here rather than assumed either way: the
+// transposed kernel leaves them set, the scalar kernel leaves them clear.
+//
+// One atomic per block and counter: each warp reduces with shuffles, the warp
+// sums meet in shared memory, and thread 0 adds the block total. A per-warp
+// atomic on the verified count, which is nearly every word, cost ~36 us per
+// 2e8-number segment in contention on the one address; per block it costs
+// nothing measurable. Every lane reaches the shuffles and the barrier, so
+// there is no early return, and blockDim.x must be a multiple of 32 (at most
+// 1024); the launch uses 256.
+static const int COUNT_VERIFIED   = 0;
+static const int COUNT_UNVERIFIED = 1;
+
 __global__ void count_unverified_kernel(
     const uint64_t* __restrict__ d_verified,
     uint64_t seg_even_count,
-    uint32_t* __restrict__ d_unverified_count)
+    unsigned long long* __restrict__ d_counts)
 {
     uint64_t w = (uint64_t)blockIdx.x * blockDim.x + threadIdx.x;
     uint64_t verified_words = (seg_even_count + 63) / 64;
-    if (w >= verified_words) return;
 
-    uint64_t word = d_verified[w];
+    uint32_t verified = 0, unverified = 0;
+    if (w < verified_words) {
+        uint64_t valid = seg_even_count - w * 64;   // >= 1, since w < verified_words
+        uint64_t mask  = (valid < 64) ? ~(~0ULL << valid) : ~0ULL;
+        uint64_t word  = d_verified[w];
+        verified   = (uint32_t)__popcll(word & mask);
+        unverified = (uint32_t)__popcll(~word & mask);
+    }
+    for (int off = 16; off > 0; off >>= 1) {
+        verified   += __shfl_down_sync(0xffffffffu, verified, off);
+        unverified += __shfl_down_sync(0xffffffffu, unverified, off);
+    }
 
-    uint64_t valid = seg_even_count - w * 64;   // >= 1, since w < verified_words
-    if (valid < 64) word |= (~0ULL << valid);
-
-    uint32_t unverified = 64u - (uint32_t)__popcll(word);
-    if (unverified) atomicAdd(d_unverified_count, unverified);
+    __shared__ uint32_t warp_verified[32], warp_unverified[32];   // <= 2048 each
+    if ((threadIdx.x & 31) == 0) {
+        warp_verified[threadIdx.x >> 5]   = verified;
+        warp_unverified[threadIdx.x >> 5] = unverified;
+    }
+    __syncthreads();
+    if (threadIdx.x == 0) {
+        unsigned long long block_verified = 0, block_unverified = 0;
+        for (unsigned i = 0; i < blockDim.x / 32; i++) {
+            block_verified   += warp_verified[i];
+            block_unverified += warp_unverified[i];
+        }
+        if (block_verified)   atomicAdd(&d_counts[COUNT_VERIFIED],   block_verified);
+        if (block_unverified) atomicAdd(&d_counts[COUNT_UNVERIFIED], block_unverified);
+    }
 }
 
 // --count-primes only: number of set bits in d_seg_bits over the bit indices
@@ -286,7 +325,7 @@ void run_gpu_worker(
         uint64_t* d_seg_bits = nullptr;
         uint64_t* d_verified = nullptr;   // bitset: 1 bit per even number
         uint64_t* d_p_batch  = nullptr;
-        uint32_t* d_unverified_count = nullptr;
+        unsigned long long* d_counts = nullptr;   // [COUNT_VERIFIED], [COUNT_UNVERIFIED]
         unsigned long long* d_record = nullptr;
         unsigned long long* d_prime_count = nullptr;
 
@@ -296,7 +335,7 @@ void run_gpu_worker(
         uint64_t max_verified_words = (SEG_SIZE + 63) / 64;
         CUDA_CHECK(cudaMalloc(&d_verified, max_verified_words * sizeof(uint64_t)));
         CUDA_CHECK(cudaMalloc(&d_p_batch, P_BATCH * sizeof(uint64_t)));
-        CUDA_CHECK(cudaMalloc(&d_unverified_count, sizeof(uint32_t)));
+        CUDA_CHECK(cudaMalloc(&d_counts, 2 * sizeof(unsigned long long)));
         if (recordCheck) CUDA_CHECK(cudaMalloc(&d_record, sizeof(unsigned long long)));
         if (countPrimes) CUDA_CHECK(cudaMalloc(&d_prime_count, sizeof(unsigned long long)));
 
@@ -367,13 +406,16 @@ void run_gpu_worker(
                 CUDA_CHECK(cudaGetLastError());
             }
 
-            // C. Count Unverified
-            uint32_t unverified_count = 0;
-            CUDA_CHECK(cudaMemsetAsync(d_unverified_count, 0, sizeof(uint32_t), stream));
+            // C. Count verified and unverified numbers
+            unsigned long long counts[2] = {0, 0};
+            CUDA_CHECK(cudaMemsetAsync(d_counts, 0, 2 * sizeof(unsigned long long), stream));
 
             uint32_t count_blocks = (uint32_t)((verified_words + 255) / 256);
-            count_unverified_kernel<<<count_blocks, 256, 0, stream>>>(d_verified, seg_even_count, d_unverified_count);
-            CUDA_CHECK(cudaMemcpyAsync(&unverified_count, d_unverified_count, sizeof(uint32_t), cudaMemcpyDeviceToHost, stream));
+            count_unverified_kernel<<<count_blocks, 256, 0, stream>>>(d_verified, seg_even_count, d_counts);
+            // A failed launch is reported only here: the copy and the sync
+            // below would both return success and leave the counts at 0.
+            CUDA_CHECK(cudaGetLastError());
+            CUDA_CHECK(cudaMemcpyAsync(counts, d_counts, 2 * sizeof(unsigned long long), cudaMemcpyDeviceToHost, stream));
 
             // Rides along with the unverified-count readback: no extra sync.
             unsigned long long record_enc = 0;
@@ -385,6 +427,20 @@ void run_gpu_worker(
                 CUDA_CHECK(cudaMemcpyAsync(&seg_prime_count, d_prime_count, sizeof(unsigned long long),
                                            cudaMemcpyDeviceToHost, stream));
             CUDA_CHECK(cudaStreamSynchronize(stream));
+
+            // Fail closed: every number of the segment must have been counted
+            // exactly once, as verified or as unverified. A shortfall means the
+            // count did not happen as launched, and "0 unverified" could then
+            // be false, so it is a system error, never a success.
+            const uint64_t verified_count   = counts[COUNT_VERIFIED];
+            const uint64_t unverified_count = counts[COUNT_UNVERIFIED];
+            if (verified_count + unverified_count != seg_even_count) {
+                std::ostringstream err_msg;
+                err_msg << "segment count invariant failed at seg_start=" << seg_start
+                        << ": verified " << verified_count << " + unverified "
+                        << unverified_count << " != " << seg_even_count;
+                throw std::runtime_error(err_msg.str());
+            }
 
             if (count_this) {
                 g_prime_count_total.fetch_add(seg_prime_count, std::memory_order_relaxed);
@@ -435,7 +491,7 @@ void run_gpu_worker(
         CUDA_CHECK(cudaFree(d_seg_bits));
         CUDA_CHECK(cudaFree(d_verified));
         CUDA_CHECK(cudaFree(d_p_batch));
-        CUDA_CHECK(cudaFree(d_unverified_count));
+        CUDA_CHECK(cudaFree(d_counts));
         if (d_record) CUDA_CHECK(cudaFree(d_record));
         if (d_prime_count) CUDA_CHECK(cudaFree(d_prime_count));
 
@@ -461,7 +517,7 @@ static uint64_t device_alloc_bytes(uint64_t SEG_SIZE, uint64_t P_SMALL, uint64_t
     uint64_t seg_bytes          = (seg_words + 1) * sizeof(uint64_t);
     uint64_t small_primes_bytes = small_prime_count * sizeof(uint64_t);  // was unaccounted
     return verified_bytes + p_batch_bytes + seg_bytes + small_bytes + small_primes_bytes
-         + sizeof(uint32_t);
+         + 2 * sizeof(unsigned long long);
 }
 
 // Largest SEG_SIZE whose allocations stay within about a quarter of free VRAM.
