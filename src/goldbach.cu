@@ -736,10 +736,12 @@ int main(int argc, char** argv) {
     std::atomic<bool> progress_running{false};
 
     if (opt.showProgress) {
-        uint64_t total_even_to_check = (LIMIT - START) / 2 + 1;
         progress_running.store(true);
         
-        progress_thread = std::thread([&]() {
+        // total_even_to_check is captured by value. This block used to declare
+        // its own copy, which the by-reference capture then read after the
+        // block had ended, while the thread was still running.
+        progress_thread = std::thread([&, total_even_to_check]() {
             auto start_time = now();
             auto last_update = start_time;
             

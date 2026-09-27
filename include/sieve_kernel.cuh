@@ -48,6 +48,16 @@
 #define TILE_ODDS 16384
 #endif
 
+static_assert(TILE_ODDS % 64 == 0,
+              "TILE_ODDS must be a multiple of 64: each tile packs its bytes into "
+              "whole 64-bit words of the segment bitset with plain stores, so a "
+              "tile boundary inside a word would misplace bits and make adjacent "
+              "blocks race on that word");
+static_assert(TILE_ODDS > 0 && TILE_ODDS <= 49152,
+              "TILE_ODDS must be in (0, 49152]: the tiled kernel takes TILE_ODDS "
+              "bytes of dynamic shared memory per block, and 48 KB is the "
+              "per-block limit without cudaFuncSetAttribute, which is not called");
+
 // Prime-list partition point: primes below this go to the tiled kernel, the
 // rest to large_prime_sieve_kernel. Independent of TILE_ODDS -- tile width is
 // a shared-memory/occupancy question, this is a per-tile-division vs global-
