@@ -60,6 +60,7 @@
 #include <mutex>
 #include <sstream>
 #include <stdexcept>
+#include <fstream>
 #include "prime_bitset.hpp"
 #include "sieve_kernel.cuh"
 #include "phase1_kernel.cuh"
@@ -94,6 +95,15 @@ static std::mutex g_log_mutex;
 static std::mutex    g_record_mutex;
 static uint64_t      g_record_p = 0;
 
+// --count-primes: running total of primes counted over all segments, and the
+// per-segment counts for --count-file. Segments may complete out of order under
+// multi-GPU; the counts are sorted by range before they are written, and the
+// total is order-independent.
+struct SegmentCount { uint64_t lo, hi, count; };
+static std::atomic<uint64_t>     g_prime_count_total{0};
+static std::mutex                g_count_mutex;
+static std::vector<SegmentCount> g_segment_counts;
+
 template<typename... Args>
 void safe_log(Args... args) {
     std::ostringstream oss;
@@ -120,6 +130,8 @@ struct Options {
     bool showProgress = false;
     PrimeTest primeTest = PrimeTest::BPSW; 
     bool recordCheck = false;
+    bool countPrimes = false;
+    std::string countFile;
 };
 
 // Throw exception instead of exit(1) for graceful multi-thread shutdown
@@ -162,6 +174,28 @@ __global__ void count_unverified_kernel(
 
     uint32_t unverified = 64u - (uint32_t)__popcll(word);
     if (unverified) atomicAdd(d_unverified_count, unverified);
+}
+
+// --count-primes only: number of set bits in d_seg_bits over the bit indices
+// [i_lo, i_hi], i.e. the primes among the odd q = q_low + 2i in that range.
+// Launched after both sieve kernels and never on the default path, so the
+// kernels above are compiled exactly as without it.
+__global__ void count_segment_primes_kernel(
+    const uint64_t* __restrict__ d_seg_bits,
+    uint64_t i_lo, uint64_t i_hi,
+    unsigned long long* __restrict__ d_prime_count)
+{
+    uint64_t w = (i_lo >> 6) + (uint64_t)blockIdx.x * blockDim.x + threadIdx.x;
+    uint32_t n = 0;
+    if (w <= (i_hi >> 6)) {
+        uint64_t word = d_seg_bits[w];
+        if (w == (i_lo >> 6)) word &= ~0ULL << (i_lo & 63);
+        if (w == (i_hi >> 6) && (i_hi & 63) != 63) word &= ~(~0ULL << ((i_hi & 63) + 1));
+        n = (uint32_t)__popcll(word);
+    }
+    // One atomic per warp rather than per word.
+    for (int off = 16; off > 0; off >>= 1) n += __shfl_down_sync(0xffffffffu, n, off);
+    if ((threadIdx.x & 31) == 0 && n) atomicAdd(d_prime_count, (unsigned long long)n);
 }
 
 // -------------------------------------------------------
@@ -214,7 +248,9 @@ void run_gpu_worker(
     const std::vector<uint64_t>& gpu_primes,
     const std::vector<uint64_t>& cpu_primes,
     PrimeTest primeTest,
-    bool recordCheck
+    bool recordCheck,
+    bool countPrimes,
+    uint64_t COUNT_HIGH
 )
 {
     try {
@@ -252,6 +288,7 @@ void run_gpu_worker(
         uint64_t* d_p_batch  = nullptr;
         uint32_t* d_unverified_count = nullptr;
         unsigned long long* d_record = nullptr;
+        unsigned long long* d_prime_count = nullptr;
 
         CUDA_CHECK(cudaMalloc(&d_seg_bits, seg_bytes));
         // d_verified holds one bit per even number; SEG_SIZE is the largest
@@ -261,6 +298,7 @@ void run_gpu_worker(
         CUDA_CHECK(cudaMalloc(&d_p_batch, P_BATCH * sizeof(uint64_t)));
         CUDA_CHECK(cudaMalloc(&d_unverified_count, sizeof(uint32_t)));
         if (recordCheck) CUDA_CHECK(cudaMalloc(&d_record, sizeof(unsigned long long)));
+        if (countPrimes) CUDA_CHECK(cudaMalloc(&d_prime_count, sizeof(unsigned long long)));
 
         CUDA_CHECK(cudaStreamSynchronize(stream));
 
@@ -285,6 +323,25 @@ void run_gpu_worker(
                                  sieve_small_count, sieve_large_count,
                                  d_seg_bits, THREADS_PER_BLOCK, stream);
             CUDA_CHECK(cudaGetLastError());
+
+            // --count-primes: count this segment's own odd q, [seg_start + 1,
+            // seg_end + 1] clipped to COUNT_HIGH. The sieved span reaches
+            // P_SMALL further down, but everything below seg_start - 1 is the
+            // previous segment's q_high and already counted there, so these
+            // ranges tile [START + 1, COUNT_HIGH] exactly. Runs on the final
+            // bitset: same stream, after both sieve kernels.
+            uint64_t count_lo = seg_start + 1;
+            uint64_t count_hi = std::min(q_high, COUNT_HIGH);
+            bool count_this = countPrimes && count_lo <= count_hi;
+            if (count_this) {
+                uint64_t i_lo = (count_lo - q_low) / 2;
+                uint64_t i_hi = (count_hi - q_low) / 2;
+                uint64_t words = (i_hi >> 6) - (i_lo >> 6) + 1;
+                CUDA_CHECK(cudaMemsetAsync(d_prime_count, 0, sizeof(unsigned long long), stream));
+                count_segment_primes_kernel<<<(uint32_t)((words + 255) / 256), 256, 0, stream>>>(
+                    d_seg_bits, i_lo, i_hi, d_prime_count);
+                CUDA_CHECK(cudaGetLastError());
+            }
 
             // Zero the word just past this segment's bits, so the transposed
             // kernel's one-word overread sees 0 rather than the previous
@@ -323,7 +380,17 @@ void run_gpu_worker(
             if (recordCheck)
                 CUDA_CHECK(cudaMemcpyAsync(&record_enc, d_record, sizeof(unsigned long long),
                                            cudaMemcpyDeviceToHost, stream));
+            unsigned long long seg_prime_count = 0;
+            if (count_this)
+                CUDA_CHECK(cudaMemcpyAsync(&seg_prime_count, d_prime_count, sizeof(unsigned long long),
+                                           cudaMemcpyDeviceToHost, stream));
             CUDA_CHECK(cudaStreamSynchronize(stream));
+
+            if (count_this) {
+                g_prime_count_total.fetch_add(seg_prime_count, std::memory_order_relaxed);
+                std::lock_guard<std::mutex> lk(g_count_mutex);
+                g_segment_counts.push_back({count_lo, count_hi, seg_prime_count});
+            }
 
             if (recordCheck && record_enc) {
                 uint64_t rp  = (uint64_t)(record_enc >> RECORD_IDX_BITS);
@@ -370,6 +437,7 @@ void run_gpu_worker(
         CUDA_CHECK(cudaFree(d_p_batch));
         CUDA_CHECK(cudaFree(d_unverified_count));
         if (d_record) CUDA_CHECK(cudaFree(d_record));
+        if (d_prime_count) CUDA_CHECK(cudaFree(d_prime_count));
 
     } catch (const std::exception& e) {
         safe_log("[!] FATAL ERROR in GPU ", device_id, " Worker: ", e.what());
@@ -511,6 +579,10 @@ void print_usage(const char* prog) {
               << "Optional:\n"
               << "  --seg-size=N     Even integers per segment (default: derived from free VRAM)\n"
               << "  --record-check   Print each new maximum p_min as [record] n=... p_min=...\n"
+              << "  --count-primes   Also count the primes up to LIMIT from the segment sieve;\n"
+              << "                   prints pi(LIMIT) = ...\n"
+              << "  --count-file=F   With --count-primes, write one line per segment to F:\n"
+              << "                   \"A B count\", count = number of primes in [A, B]\n"
               << "  --p-small=N      GPU prime search bound (max: 4,000,000,000)\n"
               << "  --batch-size=N   Primes per GPU batch (default: 100000)\n"
               << "  --gpus=N         Number of GPUs to use (default: 1 | all: -1)\n"
@@ -542,6 +614,8 @@ int main(int argc, char** argv) {
         if (arg.rfind("--seg-size=", 0) == 0) { SEG_SIZE = std::stoull(arg.substr(11)); seg_size_explicit = true; continue; }
         if (arg.rfind("--p-small=", 0) == 0) { P_SMALL = std::stoull(arg.substr(10)); continue; }
         if (arg == "--record-check") { opt.recordCheck = true; continue; }
+        if (arg == "--count-primes") { opt.countPrimes = true; continue; }
+        if (arg.rfind("--count-file=", 0) == 0) { opt.countFile = arg.substr(13); continue; }
         if (arg.rfind("--start=", 0) == 0) { START = std::stoull(arg.substr(8)); continue; }
         if (arg.rfind("--primetest=", 0) == 0) {
             std::string mode = arg.substr(12);
@@ -568,7 +642,13 @@ int main(int argc, char** argv) {
     }
 
     if (LIMIT < 4) { std::cerr << "Error: LIMIT must be >= 4.\n"; return 1; }
+    // --count-primes counts up to the LIMIT as given: an odd LIMIT is itself
+    // the last q the final segment sieves (q_high = LIMIT - 1 + 1).
+    const uint64_t COUNT_HIGH = LIMIT;
     if (LIMIT % 2 != 0) LIMIT--;
+    if (!opt.countFile.empty() && !opt.countPrimes) {
+        std::cerr << "Error: --count-file requires --count-primes.\n"; return 1;
+    }
     if (SEG_SIZE == 0 || SEG_SIZE % 2 != 0) { std::cerr << "Error: SEG_SIZE must be even and > 0.\n"; return 1; }
     
     const uint64_t MAX_P_SMALL = 4'000'000'000ULL;
@@ -685,6 +765,20 @@ int main(int argc, char** argv) {
                   << " primes, ascending)\n";
     }
 
+    // --count-primes: segments count only q in [START + 1, COUNT_HIGH], so the
+    // primes up to START (2 and 3 at the default START = 4) are added here.
+    uint64_t primes_below_start = 0;
+    if (opt.countPrimes) {
+        if (START > small_high) {
+            std::cerr << "[!] ERROR: --count-primes needs --start <= " << small_high << ".\n";
+            return 1;
+        }
+        primes_below_start = (uint64_t)(std::upper_bound(small_primes.begin(),
+                                        small_primes.end(), START) - small_primes.begin());
+        std::cout << "[count] counting primes; " << primes_below_start
+                  << " at or below START=" << START << " added on the host\n";
+    }
+
     // Fail-Fast Validations. Placed here so small_primes.size() is the real
     // count rather than an estimate, but still ahead of the ~200 ms Phase 2
     // prime table below.
@@ -737,7 +831,7 @@ int main(int argc, char** argv) {
 
     if (opt.showProgress) {
         progress_running.store(true);
-        
+
         // total_even_to_check is captured by value. This block used to declare
         // its own copy, which the by-reference capture then read after the
         // block had ended, while the thread was still running.
@@ -798,7 +892,7 @@ int main(int argc, char** argv) {
             run_gpu_worker, g, LIMIT, SEG_SIZE, P_SMALL, opt.batchSize,
             small_high, small_bytes, std::cref(small_bitset),
             std::cref(small_primes), std::cref(gpu_primes), std::cref(cpu_primes),
-            opt.primeTest, opt.recordCheck
+            opt.primeTest, opt.recordCheck, opt.countPrimes, COUNT_HIGH
         );
     }
 
@@ -832,6 +926,25 @@ int main(int argc, char** argv) {
     std::cout << "All even numbers from " << START << " up to " << LIMIT << " satisfy Goldbach. ✓\n";
     std::cout << "Total computation time : " << (total_ms / 1000.0) << " seconds\n";
     std::cout << "Phase 2 fallbacks      : " << g_total_phase2_count.load() << "\n";
+
+    if (opt.countPrimes) {
+        std::cout << "pi(" << COUNT_HIGH << ") = "
+                  << primes_below_start + g_prime_count_total.load() << "\n";
+        if (!opt.countFile.empty()) {
+            std::sort(g_segment_counts.begin(), g_segment_counts.end(),
+                      [](const SegmentCount& a, const SegmentCount& b) { return a.lo < b.lo; });
+            std::ofstream out(opt.countFile);
+            for (const auto& c : g_segment_counts)
+                out << c.lo << " " << c.hi << " " << c.count << "\n";
+            out.close();
+            if (!out) {
+                std::cerr << "[!] ERROR: could not write --count-file " << opt.countFile << "\n";
+                return 1;
+            }
+            std::cout << "[count] " << g_segment_counts.size()
+                      << " segment counts written to " << opt.countFile << "\n";
+        }
+    }
 
     return 0;
 }

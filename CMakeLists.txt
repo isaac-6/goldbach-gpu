@@ -180,6 +180,12 @@ add_test(NAME test_big_check
                  ${CMAKE_CURRENT_SOURCE_DIR})
 set_tests_properties(test_big_check PROPERTIES TIMEOUT 1800)
 
+# --count-primes against hard-coded pi(N) values.
+add_test(NAME test_count_primes
+         COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_count_primes.sh
+                 $<TARGET_FILE:goldbach>)
+set_tests_properties(test_count_primes PROPERTIES TIMEOUT 600)
+
 
 # --- Installation/Output ---
 # (Optional) Set output directory to a bin folder
