@@ -260,21 +260,26 @@ static std::vector<uint64_t> generate_cpu_primes(uint64_t limit) {
     return primes;
 }
 
-static bool cpu_optimized_check(uint64_t n, const std::vector<uint64_t>& cpu_primes,
-                                 PrimeTest primeTest) {
+// Returns p_min(n), the smallest prime p <= min(n/2, PHASE2_SIEVE_LIMIT) with
+// n - p prime, or 0 if there is none. cpu_primes ascends and each test is
+// exact below 2^64, so the first hit is p_min; --record-check relies on that.
+// 0 is not a counterexample: it only means no partition with p <= 10^8. For
+// n <= 2 * 10^8 the scan covers every p <= n/2 and is exhaustive.
+static uint64_t cpu_optimized_check(uint64_t n, const std::vector<uint64_t>& cpu_primes,
+                                    PrimeTest primeTest) {
     for (uint64_t p : cpu_primes) {
         if (p > n / 2) break;
         uint64_t q = n - p;
         if (q <= PHASE2_SIEVE_LIMIT) {
-            if (std::binary_search(cpu_primes.begin(), cpu_primes.end(), q)) return true;
+            if (std::binary_search(cpu_primes.begin(), cpu_primes.end(), q)) return p;
         } else {
             bool q_prime = (primeTest == PrimeTest::BPSW)
                            ? cpu_is_prime_bpsw(q)
                            : cpu_miller_rabin(q);
-            if (q_prime) return true;
+            if (q_prime) return p;
         }
     }
-    return false;
+    return 0;
 }
 
 // -------------------------------------------------------
@@ -449,16 +454,15 @@ void run_gpu_worker(
                 g_segment_counts.push_back({count_lo, count_hi, seg_prime_count});
             }
 
+            // --record-check: this segment's largest p_min and the smallest n
+            // attaining it. Phase 1's candidate is decoded here; Phase 2 below
+            // may replace it, so the record is published only after Phase 2.
+            uint64_t rec_p = 0, rec_n = 0;
             if (recordCheck && record_enc) {
-                uint64_t rp  = (uint64_t)(record_enc >> RECORD_IDX_BITS);
-                uint64_t idx = RECORD_IDX_MASK - (record_enc & RECORD_IDX_MASK);
-                uint64_t rn  = seg_start + 2 * idx;
-                std::lock_guard<std::mutex> lk(g_record_mutex);
-                if (rp > g_record_p) {
-                    g_record_p = rp;
-                    safe_log("[record] n=", rn, " p_min=", rp);
-                }
+                rec_p = (uint64_t)(record_enc >> RECORD_IDX_BITS);
+                rec_n = seg_start + 2 * (RECORD_IDX_MASK - (record_enc & RECORD_IDX_MASK));
             }
+            bool seg_failed = false;
 
             // D. CPU Phase 2 Processing
             if (unverified_count > 0) {
@@ -474,12 +478,28 @@ void run_gpu_worker(
                         g_total_phase2_count.fetch_add(1, std::memory_order_relaxed);
                         // safe_log("[GPU ", device_id, "] Phase 2 fallback for n = ", n, "...");
                         
-                        if (!cpu_optimized_check(n, cpu_primes, primeTest)) {
+                        uint64_t p2 = cpu_optimized_check(n, cpu_primes, primeTest);
+                        if (p2 == 0) {
                             g_failure.store(true, std::memory_order_relaxed);
                             g_failure_n.store(n, std::memory_order_relaxed);
+                            seg_failed = true;
                             break;
                         }
+                        // Every number that reaches Phase 2 has p_min > P_SMALL,
+                        // above any p_min Phase 1 found, so records must include
+                        // these: omitting them printed false records and missed
+                        // the maximum. n ascends, so a strict > keeps the
+                        // smallest n attaining the segment maximum.
+                        if (p2 > rec_p) { rec_p = p2; rec_n = n; }
                     }
+                }
+            }
+
+            if (recordCheck && rec_p && !seg_failed) {
+                std::lock_guard<std::mutex> lk(g_record_mutex);
+                if (rec_p > g_record_p) {
+                    g_record_p = rec_p;
+                    safe_log("[record] n=", rec_n, " p_min=", rec_p);
                 }
             }
             g_total_processed.fetch_add(seg_even_count, std::memory_order_relaxed);
@@ -638,6 +658,7 @@ void print_usage(const char* prog) {
               << "  --seg-size=N     Even integers per segment, even, 2 <= N < 2^32\n"
               << "                   (default: derived from free VRAM)\n"
               << "  --record-check   Print each new maximum p_min as [record] n=... p_min=...\n"
+              << "                   (requires the default --start=4; at most one per segment)\n"
               << "  --count-primes   Also count the primes up to LIMIT from the segment sieve;\n"
               << "                   prints pi(LIMIT) = ...\n"
               << "  --count-file=F   With --count-primes, write one line per segment to F:\n"
@@ -798,6 +819,15 @@ int main(int argc, char** argv) {
     }
     if (START < 4) START = 4;
     if (START % 2 != 0) START++; // Force it to be even
+
+    // A record is an n whose p_min exceeds that of every smaller even number
+    // from 4. Starting elsewhere would print maxima relative to START, which
+    // look like records but are not.
+    if (opt.recordCheck && START != 4) {
+        std::cerr << "Error: --record-check requires --start=4 (got START=" << START
+                  << "): records are defined relative to 4.\n";
+        return 1;
+    }
 
     // Performance warning
     if (P_SMALL < 1'000'000ULL) {
@@ -1057,7 +1087,7 @@ int main(int argc, char** argv) {
     }
 
     if (g_failure.load()) {
-        std::cout << "\n[!] Goldbach FAILED at n = " << g_failure_n.load() << "\n";
+        std::cout << "\n[!] no partition with p ≤ 10^8 found for n = " << g_failure_n.load() << "\n";
         return 1;
     }
 
