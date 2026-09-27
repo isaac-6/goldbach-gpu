@@ -5,6 +5,7 @@
 
 #pragma once
 #include <cstdint>
+#include <cuda/atomic>
 #include "primality.cuh"
 
 enum class PrimeTest {
@@ -66,9 +67,11 @@ __device__ bool is_prime_q(
 //    - All unique partitions have p <= n/2
 //
 // THREAD SAFETY:
-// - Multiple threads may write d_verified[tid] = 1 concurrently (idempotent)
-// - No thread ever writes d_verified[tid] = 0 after initialization
-// - No race conditions or data corruption possible
+// - 64 threads share each d_verified word; each sets only its own bit, with
+//   atomicOr, and reads the word with a relaxed atomic load (see below)
+// - No thread ever clears a d_verified bit after the host's memset
+// - Every access to d_verified within a launch is atomic, so there is no
+//   data race
 //
 // OVERFLOW SAFETY:
 // - p > n/2 uses division (safe for all uint64_t values)
@@ -96,10 +99,17 @@ __global__ void goldbach_phase1_kernel(
 {
     uint64_t tid = (uint64_t)blockIdx.x * blockDim.x + threadIdx.x;
     if (tid >= seg_even_count) return;
-    // Early return monotonic safety. This read is not atomic while other lanes
-    // atomicOr the same word, but bits only ever go 0 -> 1, so a stale read
-    // costs redundant work and never a wrong answer.
-    if ((d_verified[tid >> 6] >> (tid & 63)) & 1ULL) return;
+    // Early return. Other threads of this launch atomicOr the same word (64
+    // threads share it), so a plain load here would be a data race: a
+    // non-atomic access conflicting with atomic writes, undefined behaviour
+    // under the CUDA/C++ memory model whatever the hardware does. A relaxed
+    // atomic load is not a race. Relaxed order suffices: nothing else is read
+    // on the strength of this bit, and bits only ever go 0 -> 1 (set by
+    // atomicOr here, or by an earlier launch ordered by the stream), so a
+    // stale 0 costs redundant work and never a wrong answer.
+    if ((cuda::atomic_ref<unsigned long long, cuda::thread_scope_device>(
+             *reinterpret_cast<unsigned long long*>(&d_verified[tid >> 6]))
+             .load(cuda::memory_order_relaxed) >> (tid & 63)) & 1ULL) return;
 
     uint64_t n = seg_even_start + tid * 2;
 
