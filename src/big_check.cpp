@@ -25,8 +25,13 @@
 #include <limits>
 #include <omp.h>
 #include <cmath>
+#include <stdexcept>
 
 static const uint64_t DEFAULT_P_MAX = 10'000'000ULL;
+// Largest accepted --p-max. generate_primes holds a byte per integer up to L
+// plus the prime list, about 5.5 GB at this bound. It also keeps every p below
+// 2^32, so it fits the unsigned long that mpz_set_ui takes on every platform.
+static const uint64_t MAX_P_MAX     = 4'000'000'000ULL;
 static const int      BATCH_SIZE    = 1000;
 static const size_t   NO_IDX        = std::numeric_limits<size_t>::max();
 
@@ -131,6 +136,7 @@ struct Outcome {
     size_t   candidates = 0;   // index of p, plus one
     uint64_t prp_calls = 0;
     int      prp_status = 0;   // 2 = proven prime, 1 = probable prime (BPSW)
+    bool     q_below_2_64 = false;
 };
 
 static Outcome search(const mpz_t n, const std::vector<uint64_t>& primes, bool quiet) {
@@ -211,14 +217,21 @@ static Outcome search(const mpz_t n, const std::vector<uint64_t>& primes, bool q
     mpz_sub(q, n, p);
     out.q_digits  = decimal_digits(q);
     out.prp_status = mpz_probab_prime_p(q, 25);
+    out.q_below_2_64 = mpz_sizeinbase(q, 2) <= 64;
     out.prp_calls++;
+    // GMP returns 2 ("definitely prime") only when it has a proof; above 2^64
+    // BPSW is not known to be deterministic, so such a q is never called prime.
+    const bool proven = out.prp_status == 2 && out.q_below_2_64;
     if (!quiet) {
         std::cout << "\n\n--- Result ---\n";
         std::cout << "p = " << out.p << "\n";
         print_q(q, out.q_digits);
         std::cout << "n - p is "
-                  << (out.prp_status == 2 ? "prime" : "probable prime (BPSW)") << "\n";
-        std::cout << "Goldbach holds for this n. \n";
+                  << (proven ? "prime" : "probable prime (BPSW)") << "\n";
+        if (proven)
+            std::cout << "Goldbach holds for this n.\n";
+        else
+            std::cout << "Goldbach holds for this n if q is prime; q is a BPSW probable prime.\n";
     }
     mpz_clear(q); mpz_clear(p);
     return out;
@@ -228,7 +241,8 @@ static void usage(const char* prog) {
     std::cout << "Arbitrary-precision Goldbach checker (GMP)\n";
     std::cout << "Usage: " << prog << " <N> [--p-max=<B>] [--quiet]\n";
     std::cout << "  <N>          even integer >= 4, as a decimal string or a^b, a^b+c, a^b-c\n";
-    std::cout << "  --p-max=<B>  search primes p <= B (default " << DEFAULT_P_MAX << ")\n";
+    std::cout << "  --p-max=<B>  search primes p <= B (default " << DEFAULT_P_MAX
+              << ", at most " << MAX_P_MAX << ")\n";
     std::cout << "  --quiet      print only the RESULT line\n";
     std::cout << "Exit: 0 found, 3 no partition with p <= L, 1 invalid input\n";
 }
@@ -256,6 +270,9 @@ int main(int argc, char* argv[]) {
             p_max = std::strtoull(v.c_str(), &endp, 10);
             if (errno != 0 || *endp != '\0') {
                 std::cerr << "Error: --p-max out of range\n"; return 1;
+            }
+            if (p_max > MAX_P_MAX) {
+                std::cerr << "Error: --p-max must be <= " << MAX_P_MAX << "\n"; return 1;
             }
         }
         else if (a.rfind("--", 0) == 0) {
@@ -303,7 +320,15 @@ int main(int argc, char* argv[]) {
         std::cout << "Generating primes up to " << L << "...\n";
     }
 
-    std::vector<uint64_t> primes = generate_primes(L);
+    std::vector<uint64_t> primes;
+    try {
+        primes = generate_primes(L);
+    } catch (const std::exception& e) {   // std::bad_alloc, std::length_error
+        std::cerr << "Error: cannot allocate the prime table up to " << L
+                  << " (" << e.what() << "); lower --p-max\n";
+        mpz_clear(n); mpz_clear(n_half);
+        return 1;
+    }
 
     if (!quiet)
         std::cout << "Generated " << primes.size() << " primes. Using "

@@ -133,11 +133,10 @@ void extract_primes(const std::vector<char>& sieve,
     }
 }
 
-void check_single(uint64_t n) {
-    if (n < 4 || n % 2 != 0) {
-        std::cerr << "Error: n must be even and >= 4\n";
-        return;
-    }
+// Returns true if a partition was found. The search covers every prime
+// p <= n/2 with a deterministic Miller-Rabin test on q, so false is a genuine
+// counterexample claim, not a search-limit result.
+bool check_single(uint64_t n) {
 
     std::cout << "Checking Goldbach for n = " << n << "\n";
 
@@ -220,7 +219,9 @@ void check_single(uint64_t n) {
 
             goldbach_single_kernel<<<(uint32_t)blocks, threads_per_block>>>(
                 d_primes, batch_size, n, d_found, d_p_out, d_q_out);
-
+            // A failed launch leaves d_found at 0, which would otherwise read
+            // as "no partition in this batch" and end in a false counterexample.
+            CUDA_CHECK(cudaGetLastError());
             CUDA_CHECK(cudaDeviceSynchronize());
 
             auto tg1 = std::chrono::high_resolution_clock::now();
@@ -279,6 +280,7 @@ void check_single(uint64_t n) {
     CUDA_CHECK(cudaFree(d_found));
     CUDA_CHECK(cudaFree(d_p_out));
     CUDA_CHECK(cudaFree(d_q_out));
+    return found;
 }
 
 int main(int argc, char** argv) {
@@ -287,6 +289,7 @@ int main(int argc, char** argv) {
         std::cout << "GPU Single Number Goldbach Checker\n";
         std::cout << "Usage: " << argv[0] << " <N>\n";
         std::cout << "Example: " << argv[0] << " 1000000000000\n";
+        std::cout << "Exit: 0 partition found, 2 no partition (counterexample), 1 invalid input or error\n";
         return 0;
     }
 
@@ -314,6 +317,5 @@ int main(int argc, char** argv) {
     }
 
     std::cout << "Checking Goldbach for n = " << n << "...\n";
-    check_single(n);
-    return 0;
+    return check_single(n) ? 0 : 2;
 }
