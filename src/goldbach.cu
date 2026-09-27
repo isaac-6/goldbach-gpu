@@ -61,6 +61,7 @@
 #include <sstream>
 #include <stdexcept>
 #include <fstream>
+#include <cctype>
 #include "prime_bitset.hpp"
 #include "sieve_kernel.cuh"
 #include "phase1_kernel.cuh"
@@ -629,23 +630,69 @@ void print_usage(const char* prog) {
     std::cout << "Goldbach Multi-GPU Verifier\n\n"
               << "Usage:\n"
               << "  " << prog << " <LIMIT> [SEG_SIZE] [P_SMALL]\n"
-              << "  " << prog << " <LIMIT> [--seg-size=N] [--p-small=N][--gpus=N]\n\n"
+              << "  " << prog << " <LIMIT> [--seg-size=N] [--p-small=N] [--gpus=N] [options]\n\n"
               << "Required:\n"
-              << "  LIMIT            Max even integer to check\n\n"
+              << "  LIMIT            Max integer to check, 4 <= LIMIT <= 18446744065119617024\n"
+              << "                   (2^64 - 2^33); an odd LIMIT checks up to LIMIT - 1\n\n"
               << "Optional:\n"
-              << "  --seg-size=N     Even integers per segment (default: derived from free VRAM)\n"
+              << "  --seg-size=N     Even integers per segment, even, 2 <= N < 2^32\n"
+              << "                   (default: derived from free VRAM)\n"
               << "  --record-check   Print each new maximum p_min as [record] n=... p_min=...\n"
               << "  --count-primes   Also count the primes up to LIMIT from the segment sieve;\n"
               << "                   prints pi(LIMIT) = ...\n"
               << "  --count-file=F   With --count-primes, write one line per segment to F:\n"
               << "                   \"A B count\", count = number of primes in [A, B]\n"
-              << "  --p-small=N      GPU prime search bound (max: 4,000,000,000)\n"
-              << "  --batch-size=N   Primes per GPU batch (default: 100000)\n"
+              << "  --p-small=N      GPU prime search bound, 3 <= N <= 4,000,000,000\n"
+              << "                   (default: 1000000)\n"
+              << "  --batch-size=N   Primes per GPU batch, 1 <= N <= 2^32 (default: 100000)\n"
               << "  --gpus=N         Number of GPUs to use (default: 1 | all: -1)\n"
-              << "  --start=N        Starting number for verification (default: 4)\n"
+              << "  --start=N        First even number to verify, START <= LIMIT (default: 4)\n"
               << "  --primetest=X    Primality test: BPSW (default) or MR\n"
               << "  --progress       Show real-time progress updates\n"
-              << "  -h, --help       Show this help message\n";
+              << "  -h, --help       Show this help message\n"
+              << "\nWith G GPUs, LIMIT + 2*SEG_SIZE*(G+1) must also stay below 2^64.\n";
+}
+
+// -------------------------------------------------------
+// Parameter limits
+// -------------------------------------------------------
+// Every limit below is derived from the arithmetic it protects.
+//
+// MAX_LIMIT = 2^64 - 2^33. With SEG_SIZE < 2^32 a segment spans 2*SEG_SIZE - 2
+// < 2^33, so for every seg_start <= LIMIT the values seg_start + 2*SEG_SIZE,
+// seg_end + 1 (= q_high) and q + 1 (the strong Lucas test works on n + 1) stay
+// below 2^64. The same 2^33 headroom exceeds every sieving prime (at most
+// isqrt(2^64) + 1 = 2^32 + 1), so even the sieve's former first-multiple
+// formula q_low + p - 1 could not overflow; the sieve no longer forms that sum
+// at all.
+//
+// The segment counter is a separate bound, checked once the GPU count G and
+// the final SEG_SIZE are known: each of the G workers claims one segment start
+// past LIMIT before it stops, so the counter reaches at most
+// LIMIT + 2*SEG_SIZE*(G+1), and that must not wrap.
+//
+// MAX_SEG_SIZE < 2^32 and MAX_BATCH_SIZE = 2^32, with P_SMALL <= 4e9, keep
+// every device-memory byte computation below 2^36.
+static const uint64_t MAX_LIMIT      = 18446744065119617024ULL;   // 2^64 - 2^33
+static const uint64_t MAX_SEG_SIZE   = 4294967294ULL;             // largest even < 2^32
+static const uint64_t MIN_P_SMALL    = 3;
+static const uint64_t MAX_P_SMALL    = 4'000'000'000ULL;
+static const uint64_t MAX_BATCH_SIZE = 4294967296ULL;             // 2^32
+
+// Strict decimal parse: digits only -- no sign, no whitespace, no suffix --
+// and no silent wrap. std::stoull accepted "-1" as 2^64 - 1.
+static uint64_t parse_u64(const std::string& text, const std::string& what) {
+    if (text.empty() || text.find_first_not_of("0123456789") != std::string::npos)
+        throw std::invalid_argument(what + " must be a non-negative decimal integer, got '"
+                                    + text + "'");
+    uint64_t v = 0;
+    for (char c : text) {
+        uint64_t d = (uint64_t)(c - '0');
+        if (v > (UINT64_MAX - d) / 10)
+            throw std::invalid_argument(what + " is out of range: '" + text + "'");
+        v = v * 10 + d;
+    }
+    return v;
 }
 
 int main(int argc, char** argv) {
@@ -659,45 +706,66 @@ int main(int argc, char** argv) {
     uint64_t START = 4; // Default starting point
     int requested_gpus = 1;
 
-    std::vector<std::string> positional;
-
-    for (int i = 1; i < argc; i++) {
-        std::string arg = argv[i];
-        if (arg == "-h" || arg == "--help") { print_usage(argv[0]); return 0; }
-        if (arg == "--progress") { opt.showProgress = true; continue; }
-        if (arg.rfind("--batch-size=", 0) == 0) { opt.batchSize = std::stoull(arg.substr(13)); continue; }
-        if (arg.rfind("--gpus=", 0) == 0) { requested_gpus = std::stoi(arg.substr(7)); continue; }
-        if (arg.rfind("--seg-size=", 0) == 0) { SEG_SIZE = std::stoull(arg.substr(11)); seg_size_explicit = true; continue; }
-        if (arg.rfind("--p-small=", 0) == 0) { P_SMALL = std::stoull(arg.substr(10)); continue; }
-        if (arg == "--record-check") { opt.recordCheck = true; continue; }
-        if (arg == "--count-primes") { opt.countPrimes = true; continue; }
-        if (arg.rfind("--count-file=", 0) == 0) { opt.countFile = arg.substr(13); continue; }
-        if (arg.rfind("--start=", 0) == 0) { START = std::stoull(arg.substr(8)); continue; }
-        if (arg.rfind("--primetest=", 0) == 0) {
-            std::string mode = arg.substr(12);
-            if (mode == "MR" || mode == "mr") {
-                opt.primeTest = PrimeTest::MillerRabin;
-            } else if (mode == "BPSW" || mode == "bpsw") {
-                opt.primeTest = PrimeTest::BPSW;
-            } else {
-                std::cerr << "Unknown --primetest value: " << mode
-                          << "  (use MR or BPSW)\n";
-                return 1;
-            }
-            continue;
-        }
-        positional.push_back(arg);
-    }
-
     try {
-        if (positional.size() >= 1) LIMIT = std::stoull(positional[0]);
-        if (positional.size() >= 2) { SEG_SIZE = std::stoull(positional[1]); seg_size_explicit = true; }
-        if (positional.size() >= 3) P_SMALL = std::stoull(positional[2]);
-    } catch (...) {
-        std::cerr << "Error: Invalid numeric argument.\n"; return 1;
+        std::vector<std::string> positional;
+        for (int i = 1; i < argc; i++) {
+            std::string arg = argv[i];
+            if (arg == "-h" || arg == "--help") { print_usage(argv[0]); return 0; }
+            if (arg == "--progress") { opt.showProgress = true; continue; }
+            if (arg.rfind("--batch-size=", 0) == 0) { opt.batchSize = parse_u64(arg.substr(13), "--batch-size"); continue; }
+            if (arg.rfind("--gpus=", 0) == 0) {
+                std::string v = arg.substr(7);
+                if (v == "-1") { requested_gpus = -1; continue; }
+                uint64_t g = parse_u64(v, "--gpus");
+                if (g == 0 || g > 1024)
+                    throw std::invalid_argument("--gpus must be -1 (all) or between 1 and 1024, got '" + v + "'");
+                requested_gpus = (int)g;
+                continue;
+            }
+            if (arg.rfind("--seg-size=", 0) == 0) { SEG_SIZE = parse_u64(arg.substr(11), "--seg-size"); seg_size_explicit = true; continue; }
+            if (arg.rfind("--p-small=", 0) == 0) { P_SMALL = parse_u64(arg.substr(10), "--p-small"); continue; }
+            if (arg == "--record-check") { opt.recordCheck = true; continue; }
+            if (arg == "--count-primes") { opt.countPrimes = true; continue; }
+            if (arg.rfind("--count-file=", 0) == 0) { opt.countFile = arg.substr(13); continue; }
+            if (arg.rfind("--start=", 0) == 0) { START = parse_u64(arg.substr(8), "--start"); continue; }
+            if (arg.rfind("--primetest=", 0) == 0) {
+                std::string mode = arg.substr(12);
+                if (mode == "MR" || mode == "mr") {
+                    opt.primeTest = PrimeTest::MillerRabin;
+                } else if (mode == "BPSW" || mode == "bpsw") {
+                    opt.primeTest = PrimeTest::BPSW;
+                } else {
+                    throw std::invalid_argument("unknown --primetest value '" + mode + "' (use MR or BPSW)");
+                }
+                continue;
+            }
+            if (arg.size() > 1 && arg[0] == '-') {
+                if (isdigit((unsigned char)arg[1]))
+                    throw std::invalid_argument("positional arguments must be non-negative decimal integers, got '"
+                                                + arg + "'");
+                throw std::invalid_argument("unknown option '" + arg + "'");
+            }
+            positional.push_back(arg);
+        }
+
+        if (positional.empty())
+            throw std::invalid_argument("LIMIT is required");
+        if (positional.size() > 3)
+            throw std::invalid_argument("too many positional arguments (expected <LIMIT> [SEG_SIZE] [P_SMALL]), got '"
+                                        + positional[3] + "'");
+        LIMIT = parse_u64(positional[0], "LIMIT");
+        if (positional.size() >= 2) { SEG_SIZE = parse_u64(positional[1], "SEG_SIZE"); seg_size_explicit = true; }
+        if (positional.size() >= 3) P_SMALL = parse_u64(positional[2], "P_SMALL");
+    } catch (const std::exception& e) {
+        std::cerr << "Error: " << e.what() << "\n";
+        return 1;
     }
 
     if (LIMIT < 4) { std::cerr << "Error: LIMIT must be >= 4.\n"; return 1; }
+    if (LIMIT > MAX_LIMIT) {
+        std::cerr << "Error: LIMIT must be <= " << MAX_LIMIT << " (2^64 - 2^33).\n";
+        return 1;
+    }
     // --count-primes counts up to the LIMIT as given: an odd LIMIT is itself
     // the last q the final segment sieves (q_high = LIMIT - 1 + 1).
     const uint64_t COUNT_HIGH = LIMIT;
@@ -705,28 +773,33 @@ int main(int argc, char** argv) {
     if (!opt.countFile.empty() && !opt.countPrimes) {
         std::cerr << "Error: --count-file requires --count-primes.\n"; return 1;
     }
-    if (SEG_SIZE == 0 || SEG_SIZE % 2 != 0) { std::cerr << "Error: SEG_SIZE must be even and > 0.\n"; return 1; }
-    
-    const uint64_t MAX_P_SMALL = 4'000'000'000ULL;
-    if (P_SMALL > MAX_P_SMALL) {
-        std::cerr << "Error: P_SMALL must be <= " << MAX_P_SMALL << " to prevent mathematical overflow.\n";
+    if (seg_size_explicit && (SEG_SIZE == 0 || SEG_SIZE % 2 != 0 || SEG_SIZE > MAX_SEG_SIZE)) {
+        std::cerr << "Error: SEG_SIZE must be even, > 0 and < 2^32 (at most "
+                  << MAX_SEG_SIZE << "), got " << SEG_SIZE << ".\n";
         return 1;
     }
-    if (P_SMALL > LIMIT) P_SMALL = LIMIT;
+    if (P_SMALL < MIN_P_SMALL || P_SMALL > MAX_P_SMALL) {
+        std::cerr << "Error: P_SMALL must be between " << MIN_P_SMALL << " and "
+                  << MAX_P_SMALL << ", got " << P_SMALL << ".\n";
+        return 1;
+    }
+    if (opt.batchSize == 0 || opt.batchSize > MAX_BATCH_SIZE) {
+        std::cerr << "Error: --batch-size must be between 1 and " << MAX_BATCH_SIZE
+                  << ", got " << opt.batchSize << ".\n";
+        return 1;
+    }
+    if (P_SMALL > LIMIT) P_SMALL = LIMIT;   // LIMIT >= 4, so P_SMALL stays >= 3
 
+    // START is compared before it is rounded: LIMIT <= MAX_LIMIT is even, so
+    // an odd START <= LIMIT rounds up to at most LIMIT and cannot wrap.
+    if (START > LIMIT) {
+        std::cerr << "Error: START must be <= LIMIT.\n";
+        return 1;
+    }
     if (START < 4) START = 4;
     if (START % 2 != 0) START++; // Force it to be even
-    if (START >= LIMIT) {
-        std::cerr << "Error: START must be less than LIMIT.\n";
-        return 1;
-    }
 
-    // Performance warnings
-    if (P_SMALL > LIMIT) {
-        std::cout << "[Info] P_SMALL (" << P_SMALL << ") > LIMIT (" << LIMIT 
-                << "), adjusting P_SMALL to LIMIT.\n";
-        P_SMALL = LIMIT;
-    }
+    // Performance warning
     if (P_SMALL < 1'000'000ULL) {
         std::cerr << "\n[!] WARNING: P_SMALL = " << P_SMALL << " is very small.\n";
         std::cerr << "    This may cause excessive Phase 2 fallbacks.\n";
@@ -780,6 +853,16 @@ int main(int argc, char** argv) {
         SEG_SIZE = derive_seg_size(free_bytes0, P_SMALL, opt.batchSize, small_bytes, pi_bound);
         std::cout << "[auto] --seg-size not given; chose " << SEG_SIZE
                   << " from " << free_bytes0 / (1024*1024) << " MB free VRAM\n";
+    }
+
+    // Segment counter headroom (see MAX_LIMIT above): LIMIT + 2*SEG_SIZE*(G+1)
+    // must not wrap, or a worker would claim a small seg_start again.
+    if ((unsigned __int128)LIMIT + (unsigned __int128)2 * SEG_SIZE * (unsigned)(use_gpus + 1)
+            > (unsigned __int128)UINT64_MAX) {
+        std::cerr << "Error: LIMIT + 2*SEG_SIZE*(GPUs+1) exceeds 2^64 - 1, so the segment counter\n"
+                  << "       would wrap (LIMIT=" << LIMIT << ", SEG_SIZE=" << SEG_SIZE
+                  << ", GPUs=" << use_gpus << "). Reduce LIMIT, --seg-size or --gpus.\n";
+        return 1;
     }
 
     // std::cout << "\nGoldbach Multi-GPU Verifier (Limit: " << LIMIT << ")\n";

@@ -119,6 +119,27 @@ __device__ __forceinline__ void tile_clear_byte(unsigned char* p)
                  : "memory");
 }
 
+// Offset from q_low of the first odd multiple of the odd prime p that is at
+// least max(q_low, p*p): the sieve's starting point, as an offset rather than
+// as a value. Requires q_low odd and p*p <= q_high (both callers check the
+// latter first).
+//
+// The former formula, (q_low + p - 1) / p * p, formed q_low + p - 1, which
+// wraps once q_low > 2^64 - p; the wrapped value was then clamped to p*p, the
+// prime was skipped, and its multiples stayed marked prime. Nothing here adds
+// to q_low: off < 2p, or off = p*p - q_low, so no overflow is possible for any
+// q_low, and the caller compares off against q_high - q_low instead of forming
+// q_low + off.
+__device__ __forceinline__ uint64_t sieve_first_offset(uint64_t q_low, uint64_t p)
+{
+    uint64_t r   = q_low % p;
+    uint64_t off = r ? p - r : 0;       // q_low + off: least multiple of p >= q_low
+    if (off & 1) off += p;              // q_low odd: an odd offset is an even multiple
+    uint64_t pp  = p * p;               // odd, and <= q_high
+    if (pp > q_low && pp - q_low > off) off = pp - q_low;
+    return off;                         // even, so q_low + off is odd
+}
+
 // Overflow-safe tiled sieve
 __global__ void tiled_sieve_segment_kernel(
     uint64_t        q_low,
@@ -151,15 +172,10 @@ __global__ void tiled_sieve_segment_kernel(
         if (p < 3) continue;          
         if (p > q_high / p) continue; // OVERFLOW-SAFE
 
-        uint64_t first = (q_low + p - 1) / p * p;
-        if ((first & 1) == 0) first += p;
-        
-        if (p <= q_high / p && first < p * p) first = p * p;
-        if ((first & 1) == 0) first += p;
-        if (first > q_high) continue;
+        uint64_t first_offset = sieve_first_offset(q_low, p);
+        if (first_offset > q_high - q_low) continue;
 
-        uint64_t first_bit_offset = first - q_low;
-        int64_t first_bit = (int64_t)(first_bit_offset / 2);
+        int64_t first_bit = (int64_t)(first_offset / 2);
         if (first_bit >= (int64_t)tile_odd_end) continue;
 
         if (first_bit < (int64_t)tile_odd_start) {
@@ -227,17 +243,14 @@ __global__ void large_prime_sieve_kernel(
     if (p < 3) return;
     if (p > q_high / p) return;   // OVERFLOW-SAFE, and p*p > q_high marks nothing
 
-    uint64_t first = (q_low + p - 1) / p * p;
-    if ((first & 1) == 0) first += p;
-    // p*p is odd for odd p, so this needs no second parity fixup.
-    if (first < p * p) first = p * p;
-    if (first > q_high) return;
+    uint64_t first_offset = sieve_first_offset(q_low, p);
+    if (first_offset > q_high - q_low) return;
 
     // Step in bit-index space: q advances by 2p, so i advances by p. Iterating
     // on the index rather than on q keeps the loop free of any overflow risk
     // near the top of the uint64_t range.
     uint64_t num_odds = (q_high - q_low) / 2 + 1;
-    for (uint64_t i = (first - q_low) >> 1; i < num_odds; i += p) {
+    for (uint64_t i = first_offset >> 1; i < num_odds; i += p) {
         atomicAnd(reinterpret_cast<unsigned long long*>(&d_seg_bits[i >> 6]),
                   ~(1ULL << (i & 63)));
     }
