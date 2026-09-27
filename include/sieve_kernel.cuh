@@ -80,6 +80,35 @@
 #define SPLIT_THRESHOLD 65536
 #endif
 
+// Clear one byte of the shared-memory tile with a relaxed, block-scoped atomic
+// store.
+//
+// MEMORY MODEL: in the marking loop of tiled_sieve_segment_kernel, threads
+// sieving different primes may clear the same byte (any composite with two
+// small prime factors). With plain stores that is a data race: two conflicting
+// non-atomic accesses unordered by happens-before, undefined behaviour under
+// the CUDA/C++ memory model even though every writer stores the same 0.
+// Concurrent atomic stores are not a data race, and relaxed order suffices:
+// nothing is published through these bytes, all that matters is the final
+// value. The __syncthreads() after the marking loop orders every one of these
+// stores before the packing loop's plain reads, so those reads race with
+// nothing either. The initialisation (plain stores of 1) is likewise ordered
+// before the marking by the __syncthreads() that follows it.
+//
+// Inline PTX rather than cuda::atomic_ref<unsigned char, thread_scope_block>:
+// in CUDA 13.3 atomic_ref has no native 1-byte store. It emulates one with a
+// generic-address 32-bit load and an atom.cas loop on the enclosing word,
+// which is a read-modify-write that contends with neighbouring bytes. This
+// is the one-byte store itself, and compiles to the same STS.U8 as the plain
+// store it replaces.
+__device__ __forceinline__ void tile_clear_byte(unsigned char* p)
+{
+    asm volatile("st.relaxed.cta.shared.b8 [%0], %1;"
+                 :: "r"((unsigned)__cvta_generic_to_shared(p)),
+                    "h"((unsigned short)0)
+                 : "memory");
+}
+
 // Overflow-safe tiled sieve
 __global__ void tiled_sieve_segment_kernel(
     uint64_t        q_low,
@@ -132,7 +161,7 @@ __global__ void tiled_sieve_segment_kernel(
         }
 
         for (int64_t bit = first_bit; bit < (int64_t)tile_odd_end; bit += (int64_t)p) {
-            sh_tile[bit - tile_odd_start] = 0;
+            tile_clear_byte(&sh_tile[bit - tile_odd_start]);   // see tile_clear_byte
         }
     }
     __syncthreads();
