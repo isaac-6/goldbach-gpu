@@ -144,9 +144,6 @@ static uint64_t check_range(uint64_t n_low, uint64_t n_high, uint64_t p_small,
     CK(cudaMemcpy(d_small_primes, small_primes.data(),
                   small_primes.size() * sizeof(uint64_t), cudaMemcpyHostToDevice));
 
-    PrimeTest primeTest = PrimeTest::BPSW;
-    CK(cudaMemcpyToSymbol(g_device_prime_test, &primeTest, sizeof(PrimeTest)));
-
     uint64_t sc = sieve_split_prime_count(small_primes.data(), small_primes.size());
 
     // Sweep prime-list prefixes. Handing the production kernel only the first
@@ -188,6 +185,16 @@ static uint64_t check_range(uint64_t n_low, uint64_t n_high, uint64_t p_small,
                 CK(cudaGetLastError());
             }
             CK(cudaDeviceSynchronize());
+            unsigned int q_range_error = 0;
+            CK(cudaMemcpyFromSymbol(&q_range_error, g_phase1_q_range_error, sizeof(unsigned int)));
+            if (q_range_error) {
+                // A q outside both bitsets: the segment geometry is wrong.
+                printf("    q outside both bitsets (segment at %llu, first %llu primes)\n",
+                       (unsigned long long)seg_start, (unsigned long long)K);
+                mismatches++;
+                unsigned int zero = 0;
+                CK(cudaMemcpyToSymbol(g_phase1_q_range_error, &zero, sizeof(unsigned int)));
+            }
             CK(cudaMemcpy(gpu_verified.data(), d_verified,
                           ver_words * sizeof(uint64_t), cudaMemcpyDeviceToHost));
 
@@ -286,8 +293,9 @@ int main() {
     //   starting at 4, 10004 and 20004 are <= 2*p_small + 128 and take the
     //   scalar kernel; from 30004 on they take the transposed kernel, so the
     //   routing changes between consecutive segments. The last is partial.
-    //   The scalar segments above 10001 reach q between small_high and q_low,
-    //   so is_prime_q's BPSW branch is exercised too.
+    //   Every q still lies in the small bitset or the segment bitset, as it
+    //   must (see is_prime_q); the out-of-range flag is checked after every
+    //   segment.
     // "1e9 multi": 50002-number segments (not a multiple of 64) over ~400k
     //   even numbers at 1e9, all transposed, last one partial.
     // Each runs with batch sizes 1, 7 and 1000 as well as the default, so the
@@ -313,6 +321,37 @@ int main() {
             printf("    -> %llu mismatches\n", (unsigned long long)m);
             total += m;
         }
+    }
+
+    // -------------------------------------------------------
+    // Negative control for the out-of-range flag.
+    // -------------------------------------------------------
+    // The scalar kernel called directly with a segment range that starts above
+    // every q it will meet (n in [1000, 1018], p = 3, q_low = 1000001): no
+    // bitset covers q, so is_prime_q must raise g_phase1_q_range_error and
+    // must not verify anything. The verifier's own geometry never does this.
+    {
+        printf("  [negative control: q outside both bitsets]\n");
+        uint64_t *d_small = nullptr, *d_seg = nullptr, *d_p = nullptr, *d_ver = nullptr;
+        CK(cudaMalloc(&d_small, 64)); CK(cudaMalloc(&d_seg, 64));
+        CK(cudaMalloc(&d_p, 8));      CK(cudaMalloc(&d_ver, 8));
+        CK(cudaMemset(d_small, 0xFF, 64)); CK(cudaMemset(d_seg, 0xFF, 64)); CK(cudaMemset(d_ver, 0, 8));
+        uint64_t p3 = 3;
+        CK(cudaMemcpy(d_p, &p3, 8, cudaMemcpyHostToDevice));
+        launch_goldbach_phase1(d_small, 5, d_seg, 1000001, 1000101, 1000, 10, d_p, 1, d_ver,
+                               1000, THREADS_PER_BLOCK, 0);
+        CK(cudaGetLastError());
+        CK(cudaDeviceSynchronize());
+        unsigned int flag = 0; uint64_t ver = 0;
+        CK(cudaMemcpyFromSymbol(&flag, g_phase1_q_range_error, sizeof(unsigned int)));
+        CK(cudaMemcpy(&ver, d_ver, 8, cudaMemcpyDeviceToHost));
+        bool ok = flag == 1 && ver == 0;
+        printf("    flag=%u verified bits=%llu -> %s\n", flag, (unsigned long long)ver,
+               ok ? "ok" : "FAIL (flag must be 1, nothing verified)");
+        if (!ok) total++;
+        unsigned int zero = 0;
+        CK(cudaMemcpyToSymbol(g_phase1_q_range_error, &zero, sizeof(unsigned int)));
+        CK(cudaFree(d_small)); CK(cudaFree(d_seg)); CK(cudaFree(d_p)); CK(cudaFree(d_ver));
     }
 
     std::mt19937_64 rng(20260908);

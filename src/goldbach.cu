@@ -13,10 +13,10 @@
 //          even n in [A, B] with n - p prime as verified. Segments starting
 //          above 2*P_SMALL + 128 use the transposed kernel, which reads q from
 //          the segment bitset alone. Lower segments use the scalar kernel,
-//          which checks q against:
-//            - the small bitset (q <= small_high)
-//            - the segment bitset (q_low <= q <= q_high)
-//            - BPSW or Miller-Rabin (--primetest) otherwise
+//          which reads q from the small bitset (q <= small_high) or the
+//          segment bitset (q_low <= q <= q_high). Every q lies in one of the
+//          two (see is_prime_q), so Phase 1 never tests primality itself; a q
+//          outside both is a system error.
 //     3) Count verified and unverified numbers. They must sum to the segment
 //          size, or the run aborts.
 //     4) Phase 2 (CPU): each unverified n is checked against primes
@@ -117,6 +117,12 @@ static const int THREADS_PER_BLOCK = 256;
 // the ~505 MiB context it was implicitly being asked to cover.
 static const uint64_t FRAGMENTATION_MARGIN_BYTES = 64ULL * 1024 * 1024;
 
+
+// Phase 2's test for q > PHASE2_SIEVE_LIMIT, chosen with --primetest.
+enum class PrimeTest {
+    MillerRabin,
+    BPSW
+};
 
 struct Options {
     uint64_t batchSize = 100000;
@@ -292,8 +298,6 @@ void run_gpu_worker(
 {
     try {
         CUDA_CHECK(cudaSetDevice(device_id));
-        // Copy primality-test selector to this device's constant memory
-        CUDA_CHECK(cudaMemcpyToSymbol(g_device_prime_test, &primeTest, sizeof(PrimeTest)));
         cudaStream_t stream;
         CUDA_CHECK(cudaStreamCreate(&stream));
 
@@ -420,7 +424,24 @@ void run_gpu_worker(
             if (count_this)
                 CUDA_CHECK(cudaMemcpyAsync(&seg_prime_count, d_prime_count, sizeof(unsigned long long),
                                            cudaMemcpyDeviceToHost, stream));
+            // Phase 1's out-of-range flag, set if the scalar kernel met a q
+            // that neither bitset covers (see is_prime_q). Stream-ordered after
+            // every Phase 1 launch of this segment; sticky, so it covers them all.
+            unsigned int q_range_error = 0;
+            CUDA_CHECK(cudaMemcpyFromSymbolAsync(&q_range_error, g_phase1_q_range_error,
+                                                 sizeof(unsigned int), 0,
+                                                 cudaMemcpyDeviceToHost, stream));
             CUDA_CHECK(cudaStreamSynchronize(stream));
+
+            // Before anything from this segment is used: a q outside both
+            // bitsets means Phase 1 answered a question it could not answer.
+            if (q_range_error) {
+                std::ostringstream err_msg;
+                err_msg << "Phase 1 met a q outside both prime bitsets by seg_start=" << seg_start
+                        << " (q_low=" << q_low << ", q_high=" << q_high
+                        << ", small_high=" << small_high << ")";
+                throw std::runtime_error(err_msg.str());
+            }
 
             // Fail closed: every number of the segment must have been counted
             // exactly once, as verified or as unverified. A shortfall means the

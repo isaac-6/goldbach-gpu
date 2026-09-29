@@ -27,18 +27,21 @@
 
   The error ran one way only: a prime reported composite, never the reverse.
   It could therefore cost a Phase 2 fallback, or at worst a false "no
-  partition" failure, but never a false success. `goldbach` reaches BPSW only
-  under the default `--primetest=BPSW`, and only in two places:
-  - `is_prime_q` in the scalar Phase 1 kernel, for q in
-    (small_high, q_low), which is at most (P_SMALL, P_SMALL + 128]. Only
-    segments starting in (P_SMALL + small_high, 2*P_SMALL + 128] get there.
-  - Phase 2, for q > 10^8.
+  partition" failure, but never a false success. It could reach `goldbach`
+  only through Phase 2, for q > 10^8, under `--primetest=BPSW`. Phase 1 calls
+  a primality test only for a q outside both of its prime bitsets, and no q
+  is: every q = n - p lies in [q_low, q_high] (see below).
 
-  No reported result depended on it. Every published run used
-  `--p-small=1000000`, so the kernel path saw only q <= 1000128, and every run
-  reported 0 Phase 2 fallbacks, so the host path was never taken.
-  `single_check` uses its own Miller-Rabin and `big_check` uses GMP; neither
-  was affected.
+  No reported result depended on it: every published run reported 0 Phase 2
+  fallbacks, so none entered Phase 2. `single_check` uses its own
+  Miller-Rabin and `big_check` uses GMP; neither was affected.
+- **Unreachable primality fallback in Phase 1 removed.** `is_prime_q`, the
+  scalar kernel's lookup, fell back to BPSW or Miller-Rabin for a q outside
+  both bitsets. None can occur: with p <= P_SMALL, every q = n - p satisfies
+  q_low <= q <= q_high. That fallback is now a device error flag, which the
+  host checks after each segment's Phase 1 launches; if it is set, the run
+  exits 1. The scalar kernel shrinks from 5,602 to 242 instructions (sm_120);
+  the other kernels are unchanged. `--primetest` affects Phase 2 only.
 - **`--record-check` lost records above `--p-small`.** Numbers resolved by
   Phase 2 did not report p_min, so the maximum could be missed and non-records
   printed (n = 79,097,318, p_min = 1009, with `--p-small=1020`). Phase 2 now

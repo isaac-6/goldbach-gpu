@@ -6,21 +6,35 @@
 #pragma once
 #include <cstdint>
 #include <cuda/atomic>
-#include "primality.cuh"
 
-enum class PrimeTest {
-    MillerRabin,
-    BPSW
-};
-
-// Passed to GPU once per device via cudaMemcpyToSymbol
-__constant__ PrimeTest g_device_prime_test;
+// Set to 1 by is_prime_q if it is ever asked about a q that neither bitset
+// covers. That cannot happen (see is_prime_q), so any nonzero value means the
+// segment geometry and the prime list disagree. The host reads it after every
+// segment's Phase 1 launches and treats a nonzero value as a system error:
+// the run exits 1 and never reports success. One copy per device; it is never
+// cleared, so it also reports a q out of range in any earlier segment.
+__device__ unsigned int g_phase1_q_range_error = 0;
 
 // -------------------------------------------------------
 // GPU Kernel Device Functions
 // -------------------------------------------------------
 
-
+// Primality of q = n - p for the scalar Phase 1 kernel, answered from the two
+// bitsets alone.
+//
+// INVARIANT: every odd q >= 3 reaching the last lookup lies in
+// [q_low, q_high], so the segment bitset answers it. With n in the segment
+// [seg_start, seg_end] and p an odd prime <= P_SMALL (p = 2 gives an even q,
+// handled above):
+//   - q = n - p <= seg_end - 3 < seg_end + 1 = q_high;
+//   - q = n - p >= seg_start - P_SMALL. If seg_start > P_SMALL, q_low is
+//     seg_start - P_SMALL rounded up to odd, and q is odd, so q >= q_low. If
+//     seg_start <= P_SMALL, q_low = 3 and every odd q >= 3 qualifies.
+// P_SMALL here is the value segment_geometry() used, which bounds every prime
+// in the batch. So no q ever needs a probabilistic test in Phase 1. The
+// Baillie-PSW / Miller-Rabin fallback that used to follow was unreachable; a q
+// outside both ranges now raises g_phase1_q_range_error instead, and returns
+// false so that it can never verify a number.
 __device__ bool is_prime_q(
     uint64_t q, const uint64_t* __restrict__ d_small, uint64_t small_high,
     const uint64_t* __restrict__ d_seg_bits, uint64_t q_low, uint64_t q_high)
@@ -39,9 +53,8 @@ __device__ bool is_prime_q(
         return (d_seg_bits[bit_pos / 64] >> (bit_pos % 64)) & 1ULL;
     }
 
-    if (g_device_prime_test == PrimeTest::BPSW)
-        return gpu_is_prime_bpsw(q);
-    return gpu_is_prime_miller_rabin(q);
+    atomicExch(&g_phase1_q_range_error, 1u);   // unreachable, see INVARIANT
+    return false;
 }
 
 // Phase 1 Kernel: GPU Goldbach Verification
