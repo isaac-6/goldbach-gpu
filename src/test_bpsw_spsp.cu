@@ -25,6 +25,9 @@
 //   - all four tests must ACCEPT every prime below 2^20 and every prime in the
 //     last 10^6 below 2^32, so a test that rejected everything would also fail.
 //
+// Usage: test_bpsw_spsp [bpsw|mr]   (default: both)
+//   ctest runs the two halves as test_bpsw_spsp and test_mr_spsp, so the
+//   Miller-Rabin that Phase 2 uses by default has a test of its own.
 // Exit 0 = all composites rejected and all primes accepted, 1 = otherwise.
 
 #include <cstdio>
@@ -32,6 +35,7 @@
 #include <cstdlib>
 #include <vector>
 #include <algorithm>
+#include <string>
 #include <omp.h>
 #include <cuda_runtime.h>
 #include "primality.cuh"
@@ -148,30 +152,44 @@ static std::vector<unsigned char> device_tests(const std::vector<uint64_t>& v) {
     return out;
 }
 
-// Runs device and host BPSW and Miller-Rabin over v and counts, per test, the
+// Which tests to run: bit 0 = BPSW, bit 1 = Miller-Rabin (each device and host).
+static int g_tests = 3;
+
+// Runs the selected tests (device and host) over v and counts, per test, the
 // values whose verdict differs from expect_prime. Returns the total.
 static uint64_t check_set(const char* label, const std::vector<uint64_t>& v, bool expect_prime) {
+    static const char* name[4] = {"device BPSW", "host BPSW", "device MR", "host MR"};
     std::vector<unsigned char> dev = device_tests(v);
-    uint64_t wrong[4] = {0, 0, 0, 0}, shown = 0;   // device BPSW, device MR, host BPSW, host MR
+    uint64_t wrong[4] = {0, 0, 0, 0}, shown = 0;
     for (size_t i = 0; i < v.size(); i++) {
-        bool got[4] = {(dev[i] & 1) != 0, (dev[i] & 2) != 0,
-                       cpu_is_prime_bpsw(v[i]), cpu_miller_rabin(v[i])};
-        bool any = false;
-        for (int t = 0; t < 4; t++) if (got[t] != expect_prime) { wrong[t]++; any = true; }
-        if (any && shown++ < 5)
-            printf("  [FAIL] %llu should be %s: device BPSW %d, device MR %d, host BPSW %d, host MR %d\n",
-                   (unsigned long long)v[i], expect_prime ? "prime" : "composite",
-                   got[0], got[1], got[2], got[3]);
+        bool got[4] = {false, false, false, false}, any = false;
+        if (g_tests & 1) { got[0] = dev[i] & 1; got[1] = cpu_is_prime_bpsw(v[i]); }
+        if (g_tests & 2) { got[2] = dev[i] & 2; got[3] = cpu_miller_rabin(v[i]); }
+        for (int t = 0; t < 4; t++)
+            if ((g_tests >> (t / 2) & 1) && got[t] != expect_prime) { wrong[t]++; any = true; }
+        if (any && shown++ < 5) {
+            printf("  [FAIL] %llu should be %s:", (unsigned long long)v[i], expect_prime ? "prime" : "composite");
+            for (int t = 0; t < 4; t++) if (g_tests >> (t / 2) & 1) printf(" %s %d", name[t], (int)got[t]);
+            printf("\n");
+        }
     }
-    printf("  %s: %zu checked, %s: device BPSW %llu, device MR %llu, host BPSW %llu, host MR %llu (must be 0)\n",
-           label, v.size(), expect_prime ? "rejected" : "accepted",
-           (unsigned long long)wrong[0], (unsigned long long)wrong[1],
-           (unsigned long long)wrong[2], (unsigned long long)wrong[3]);
-    return wrong[0] + wrong[1] + wrong[2] + wrong[3];
+    printf("  %s: %zu checked, %s:", label, v.size(), expect_prime ? "rejected" : "accepted");
+    uint64_t total = 0;
+    for (int t = 0; t < 4; t++)
+        if (g_tests >> (t / 2) & 1) { printf(" %s %llu", name[t], (unsigned long long)wrong[t]); total += wrong[t]; }
+    printf(" (must be 0)\n");
+    return total;
 }
 
-int main() {
+int main(int argc, char** argv) {
     uint64_t failures = 0;
+    if (argc > 1) {
+        std::string m = argv[1];
+        if (m == "bpsw") g_tests = 1;
+        else if (m == "mr") g_tests = 2;
+        else { fprintf(stderr, "usage: %s [bpsw|mr]\n", argv[0]); return 2; }
+    }
+    printf("Testing: %s\n", g_tests == 1 ? "Baillie-PSW" : g_tests == 2 ? "Miller-Rabin" : "Baillie-PSW and Miller-Rabin");
 
     printf("Sieving odd numbers below 2^32 ...\n"); fflush(stdout);
     std::vector<uint64_t> comp = composite_bits();

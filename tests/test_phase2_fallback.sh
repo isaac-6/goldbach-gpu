@@ -15,6 +15,12 @@
 # The count must be exact, and the run must still succeed (Phase 2 verifies
 # them all), at the default segment size and across many small segments.
 #
+# Those complements stay below 10^8, where Phase 2 looks q up in its table. A
+# second range, [10^8, 10^8 + 2*10^5] with --p-small=3, puts q above 10^8, so
+# Phase 2 tests it with Miller-Rabin (the default) or BPSW (--primetest=bpsw).
+# There the 100001 even numbers include 10903 with n - 3 prime
+# (pi(100199997) - pi(99999996), from sympy.primepi), so 89098 fall back.
+#
 # Usage: test_phase2_fallback.sh <path-to-goldbach>
 # Exit 0 = all cases pass.
 
@@ -36,6 +42,17 @@ for args in "" "--seg-size=1000" "--seg-size=64 --batch-size=1"; do
         echo "  FAIL [$args] Phase 2 fallbacks = '${fb}', expected $EXPECTED"; fails=$((fails+1))
     else
         echo "  ok   [$args] exit 0, Phase 2 fallbacks = $fb"
+    fi
+done
+
+for pt in mr bpsw; do
+    out=$("$GOLDBACH" 100200000 --start=100000000 --p-small=3 --primetest=$pt 2>&1); rc=$?
+    fb=$(sed -n 's/^Phase 2 fallbacks *: *\([0-9]*\)$/\1/p' <<<"$out")
+    if [ "$rc" -ne 0 ] || ! grep -q "satisfy Goldbach" <<<"$out" || [ "$fb" != 89098 ]; then
+        echo "  FAIL [above 1e8, --primetest=$pt] exit $rc, Phase 2 fallbacks = '${fb}', expected 89098"
+        fails=$((fails+1))
+    else
+        echo "  ok   [above 1e8, --primetest=$pt] exit 0, Phase 2 fallbacks = $fb"
     fi
 done
 

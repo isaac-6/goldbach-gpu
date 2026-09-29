@@ -70,6 +70,10 @@
 ### Changed
 - A Phase 2 failure reads "no partition with p ≤ 10^8 found for n = …": Phase 2
   searches p ≤ 10^8, so this is a search limit, not a counterexample.
+- **Phase 2 tests q > 10^8 with Miller-Rabin by default.** The 12-base
+  Miller-Rabin is proved deterministic below 2^64; BPSW is exact there only by
+  computation. `--primetest=bpsw` still selects BPSW. Phase 2 is the only
+  place `goldbach` tests primality, and no published run reached it.
 
 ### Added
 - `--count-primes` and `--count-file`.
@@ -77,7 +81,9 @@
   - `test_bpsw_spsp`: every base-2 strong pseudoprime below 2^32 and the
     first ten published strong Lucas pseudoprimes, through BPSW and
     Miller-Rabin on device and host;
-  - `test_phase2_fallback`: an exact Phase 2 count;
+  - `test_mr_spsp`: the same controls through Miller-Rabin, device and host;
+  - `test_phase2_fallback`: an exact Phase 2 count, below 10^6 and above
+    10^8 under both primality tests;
   - `test_record_check`: `--record-check` against brute-force records to 1e8,
     and a tie between two numbers in one segment;
   - `test_cli`: command-line validation;

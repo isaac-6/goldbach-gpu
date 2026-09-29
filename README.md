@@ -136,7 +136,7 @@ Verifies every even number from 4 to the given limit. Useful options:
 | `--count-primes` | Also print π(limit), counted from the segment sieve. |
 | `--count-file=F` | With `--count-primes`, write each segment's range and prime count to F. |
 | `--progress` | Live throughput and estimated completion. |
-| `--primetest=bpsw\|mr` | Primality fallback. Default BPSW. |
+| `--primetest=mr\|bpsw` | Primality test in the CPU fallback (Phase 2) for q above 10<sup>8</sup>. Default MR, the proved 12-base Miller–Rabin. |
 
 Invalid values, including negative numbers and unknown options, are rejected
 with exit status 1 before any work starts.
@@ -215,7 +215,7 @@ status 1.
 
 Verification is only as good as its checks, and a verifier that is silently wrong
 produces exactly the same output as one that is right. The repository therefore
-carries thirteen tests, most comparing a component against an independent
+carries fourteen tests, most comparing a component against an independent
 implementation or published data rather than against itself:
 
 | Test | What it checks |
@@ -223,13 +223,14 @@ implementation or published data rather than against itself:
 | `test_gpu_sieve` | GPU segment sieve against an independently written CPU sieve, over fixed and randomised ranges including boundary cases. |
 | `test_phase1` | GPU verification against a CPU reference. Compares across prime-list prefixes, so the comparison resolves *which* prime succeeded rather than the saturated yes/no verdict. Walks ranges in segments with the verifier's own segment geometry, including a partial last segment and a switch between the two kernels, at batch sizes down to one prime per launch. |
 | `test_primality` | Baillie–PSW against the 12-base deterministic Miller–Rabin, device and host, with emphasis above 2<sup>63</sup>; plus inputs with known verdicts (confirmed with sympy): the smallest number that is a strong pseudoprime to every prime base up to 31, and primes near 2<sup>64</sup> whose parameter search needs up to 82 steps. |
-| `test_bpsw_spsp` | Every base-2 strong pseudoprime below 2<sup>32</sup> (2,314, generated independently) and the first ten strong Lucas pseudoprimes published by Baillie, Fiori and Wagstaff must be rejected by Baillie–PSW and by Miller–Rabin, each on device and host, and 126,897 primes accepted by all four. |
+| `test_bpsw_spsp` | Every base-2 strong pseudoprime below 2<sup>32</sup> (2,314, generated independently) and the first ten strong Lucas pseudoprimes published by Baillie, Fiori and Wagstaff must be rejected by Baillie–PSW on device and host, and 126,897 primes accepted. |
+| `test_mr_spsp` | The Miller–Rabin half of the same controls, as its own test because Miller–Rabin is the default in Phase 2: every base-2 strong pseudoprime below 2<sup>32</sup> and the ten strong Lucas pseudoprimes rejected, the 126,897 primes accepted, on device and host. |
 | `test_bitset_race` | Repeated parallel bitset construction against a single-threaded reference, at both word-aligned and misaligned thread boundaries. |
 | `test_sieve`, `test_bitset` | The CPU segmented sieve and the prime bitset against known π(n). |
 | `test_records` | The CPU definition of p<sub>min</sub> against 48 published record values computed independently by Oliveira e Silva. |
 | `test_record_check` | `goldbach --record-check` to 10<sup>8</sup> at three parameter sets against a brute-force record list: the output must be a subsequence and include the maximum. A fourth run pins tie-breaking: two numbers share a segment's maximum p<sub>min</sub>, and the smaller must be reported. |
 | `test_count_primes` | `goldbach --count-primes` against known π(N), over many segments and from a non-default `--start`. |
-| `test_phase2_fallback` | With `--p-small=3`, exactly 421,501 numbers to 10<sup>6</sup> must reach the CPU fallback, and the run must still succeed. |
+| `test_phase2_fallback` | With `--p-small=3`, exactly 421,501 numbers to 10<sup>6</sup> must reach the CPU fallback, and the run must still succeed; and 89,098 in a range above 10<sup>8</sup>, where the fallback tests q with Miller–Rabin or, with `--primetest=bpsw`, Baillie–PSW. |
 | `test_cli` | Every invalid command line of `goldbach`, `big_check` and `single_check` exits 1 with its message; edge cases still run. |
 | `test_big_check` | `big_check` against the same 48 published records, plus small-*n* edges, the search-limit exit, thread-count determinism and expression input. Reads the record table out of `test_records.cpp` rather than copying it. |
 
@@ -243,7 +244,7 @@ or individually:
 
 ```bash
 ./bin/test_gpu_sieve && ./bin/test_phase1 && ./bin/test_primality \
-  && ./bin/test_bpsw_spsp && ./bin/test_bitset_race && ./bin/test_records
+  && ./bin/test_bpsw_spsp bpsw && ./bin/test_bpsw_spsp mr && ./bin/test_bitset_race && ./bin/test_records
 ```
 
 The `--record-check` flag extends this to a live run. It reports each new maximum
@@ -264,18 +265,21 @@ running maximum and permanently suppress a genuine earlier record. The surviving
 set is scheduling-dependent. **Use a single GPU when the record sequence is being
 used for validation**; multi-GPU runs remain correct for verification itself.
 
-Primality is decided by a bitset lookup wherever possible, and otherwise by
-Baillie–PSW or a 12-base deterministic Miller–Rabin. The Miller–Rabin base set is
-*proved* deterministic for all *n* < 2<sup>64</sup>. Baillie–PSW has no such
-proof. The published search finding no counterexample below 2<sup>64</sup> used
-Selfridge's parameter choice, whereas this implementation uses the Method A*
-variant (P = Q = 5 when D = 5), and we have not confirmed that the search covers
-it. Below 2<sup>32</sup> it rejects every base-2 strong pseudoprime
-(`test_bpsw_spsp`), the only composites that could pass it, and in a one-off
-exhaustive run it agreed with Miller–Rabin on every odd number there. Above
-2<sup>32</sup>, `test_primality` cross-checks it against Miller–Rabin on sampled
-inputs.
-`--primetest=mr` selects the proved test.
+Primality is decided by a bitset lookup wherever possible. The GPU phase needs
+nothing else: every complement q it queries lies in one of its two prime
+bitsets, and a q outside both would end the run as an internal error. The CPU
+fallback (Phase 2) looks q up in a table below 10<sup>8</sup>; above that it
+uses, by default, a 12-base deterministic Miller–Rabin, whose base set is
+*proved* deterministic for all *n* < 2<sup>64</sup>. `--primetest=bpsw` selects
+Baillie–PSW instead. Baillie–PSW has no such proof, but it is exact below
+2<sup>64</sup> by computation: Baillie, Fiori and Wagstaff report that none of
+the 118,968,378 base-2 pseudoprimes below 2<sup>64</sup> is a Lucas pseudoprime
+for Method A*, the parameter choice used here, and in a one-off run against
+that list (Feitsma and Galway) this implementation rejects every one, on
+device and host. The Miller–Rabin implementation passed the same run, and
+agreed with an independent sieve on every odd number below 2<sup>32</sup>.
+`test_bpsw_spsp` and `test_mr_spsp` keep both tests honest below
+2<sup>32</sup>, and `test_primality` cross-checks them above it.
 
 ---
 

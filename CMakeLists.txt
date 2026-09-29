@@ -156,7 +156,7 @@ target_link_libraries(test_phase1 PRIVATE goldbach_lib)
 set_target_properties(test_phase1 PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 
-# 10. BPSW negative control: every base-2 strong pseudoprime below 2^32
+# 10. BPSW and Miller-Rabin controls: every base-2 strong pseudoprime below 2^32
 add_executable(test_bpsw_spsp src/test_bpsw_spsp.cu)
 target_link_libraries(test_bpsw_spsp PRIVATE goldbach_lib OpenMP::OpenMP_CXX)
 # The generator's loops are OpenMP; nvcc must pass -fopenmp to the host
@@ -187,10 +187,11 @@ add_test(NAME test_primality   COMMAND test_primality)
 add_test(NAME test_records     COMMAND test_records)
 add_test(NAME test_bitset_race COMMAND test_bitset_race)
 add_test(NAME test_phase1      COMMAND test_phase1)
-add_test(NAME test_bpsw_spsp   COMMAND test_bpsw_spsp)
+add_test(NAME test_bpsw_spsp   COMMAND test_bpsw_spsp bpsw)
+add_test(NAME test_mr_spsp     COMMAND test_bpsw_spsp mr)
 add_test(NAME test_sieve       COMMAND test_sieve)
 add_test(NAME test_bitset      COMMAND test_bitset)
-set_tests_properties(test_bpsw_spsp PROPERTIES TIMEOUT 600)
+set_tests_properties(test_bpsw_spsp test_mr_spsp PROPERTIES TIMEOUT 600)
 
 # Shell-driven functional test for big_check. It reads the published p-record
 # table out of src/test_records.cpp rather than carrying its own copy, so the

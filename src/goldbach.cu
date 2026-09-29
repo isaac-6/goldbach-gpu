@@ -20,8 +20,9 @@
 //     3) Count verified and unverified numbers. They must sum to the segment
 //          size, or the run aborts.
 //     4) Phase 2 (CPU): each unverified n is checked against primes
-//          p <= 10^8, with q tested by binary search below 10^8 and by BPSW or
-//          Miller-Rabin above. Finding nothing ends the run with "no partition
+//          p <= 10^8, with q tested by binary search below 10^8 and above it
+//          by the 12-base Miller-Rabin (default; proved deterministic below
+//          2^64) or BPSW (--primetest). Finding nothing ends the run with "no partition
 //          with p <= 10^8", a search-limit result.
 //
 // Success is printed only if every segment passed step 3 and no CUDA call,
@@ -118,7 +119,11 @@ static const int THREADS_PER_BLOCK = 256;
 static const uint64_t FRAGMENTATION_MARGIN_BYTES = 64ULL * 1024 * 1024;
 
 
-// Phase 2's test for q > PHASE2_SIEVE_LIMIT, chosen with --primetest.
+// Phase 2's test for q > PHASE2_SIEVE_LIMIT, chosen with --primetest. The
+// default is Miller-Rabin with the first 12 prime bases, whose determinism
+// below 2^64 is proved: the smallest composite passing them all is
+// 318665857834031151167461 > 2^64. BPSW has no proof; it is exact below 2^64 only by computation
+// over the known base-2 pseudoprimes.
 enum class PrimeTest {
     MillerRabin,
     BPSW
@@ -127,7 +132,7 @@ enum class PrimeTest {
 struct Options {
     uint64_t batchSize = 100000;
     bool showProgress = false;
-    PrimeTest primeTest = PrimeTest::BPSW; 
+    PrimeTest primeTest = PrimeTest::MillerRabin;
     bool recordCheck = false;
     bool countPrimes = false;
     std::string countFile;
@@ -677,7 +682,8 @@ void print_usage(const char* prog) {
               << "  --batch-size=N   Primes per GPU batch, 1 <= N <= 2^32 (default: 100000)\n"
               << "  --gpus=N         Number of GPUs to use (default: 1 | all: -1)\n"
               << "  --start=N        First even number to verify, START <= LIMIT (default: 4)\n"
-              << "  --primetest=X    Primality test: BPSW (default) or MR\n"
+              << "  --primetest=X    Phase 2 primality test for q > 10^8: MR (default,\n"
+              << "                   12-base Miller-Rabin, deterministic below 2^64) or BPSW\n"
               << "  --progress       Show real-time progress updates\n"
               << "  -h, --help       Show this help message\n"
               << "\nWith G GPUs, LIMIT + 2*SEG_SIZE*(G+1) must also stay below 2^64.\n";
