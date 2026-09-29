@@ -16,7 +16,7 @@
 #                           Phase 2 on every segment
 #          goldbach_count   goldbach 3000001 --seg-size=100002
 #                           --p-small=1000 --batch-size=7 (prime counting is on
-#                           by default): count_segment_primes_kernel and the RECORD=false
+#                           by default): the prime-counting count_unverified_kernel and the RECORD=false
 #                           kernels over many launches per segment
 #
 # Not part of ctest: it needs the CUDA debugger interface, which is not

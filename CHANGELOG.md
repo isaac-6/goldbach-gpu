@@ -84,10 +84,17 @@
 ### Changed
 - **Prime counting is on by default.** Every run prints π(N), or the window
   count `primes in (START, N] = ...` when START is above the small-prime
-  bound. It costs 3.1% at 1e12 and 2.5% at 1e13 (variable cost, interleaved
+  bound. It costs 0.2% at 1e12 and 0.4% at 1e13 (variable cost, interleaved
   runs against counting off). `--no-count-primes` turns it off and restores
   the earlier timings; `--count-primes` is still accepted and does nothing.
   `--count-file` needs counting on.
+
+  As first made default the count had a kernel of its own, with its own
+  memset, its own copy and one atomic per warp on a single address: ~90 us
+  per segment, 3.1% at 1e12 and 2.5% at 1e13, against ~17 us of actual
+  reading. It is now summed by `count_unverified_kernel`, which already reads
+  every segment, reduced per block, and read back with the existing counts.
+  Every pi line and count file is byte-identical to before.
 - **p_min tracking is 16 times cheaper.** Every thread ended on an atomic maximum
   of one address; it is now skipped when it cannot raise the stored value,
   compared on the full packed (p_min, index) value so ties still resolve to

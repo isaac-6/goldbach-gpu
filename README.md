@@ -44,8 +44,8 @@ At 10<sup>14</sup> this is **1.13× faster than v3.0.0**, whose tag run took
 under Tuning.
 
 Every row is a plain verification run: no `--record-check`, no profiler, and no
-prime counting. Counting became the default later, in v3.2.0, and adds 3.1% at
-10<sup>12</sup> and 2.5% at 10<sup>13</sup>; `--no-count-primes` reproduces these
+prime counting. Counting became the default later, in v3.2.0, and adds 0.2% at
+10<sup>12</sup> and 0.4% at 10<sup>13</sup>; `--no-count-primes` reproduces these
 timings. At
 10<sup>10</sup> the computation is only 0.0755 s against 0.540 s wall clock, so
 most of the wall time is fixed startup. That row should not be read as a
@@ -137,7 +137,7 @@ Verifies every even number from 4 to the given limit. Useful options:
 | `--batch-size=N` | Primes uploaded per Phase 1 kernel launch, 1 to 2<sup>32</sup>. Default 10<sup>5</sup>. |
 | `--record-check` | Print each new maximum p<sub>min</sub> as it is found, and the overall maximum at the end. Requires the default `--start`. |
 | `--window-max` | Print the largest p<sub>min</sub> over [start, limit] and the smallest *n* attaining it, for any `--start`. Numbers resolved by the CPU fallback are included. A window maximum, not a p-record. |
-| `--no-count-primes` | Do not count primes. By default every run also prints π(limit), counted from the segment sieve, or, with a `--start` above the small-prime bound (about √limit), the count of primes in (start, limit]. Counting costs 3.1% at 10<sup>12</sup> and 2.5% at 10<sup>13</sup>. `--count-primes` is still accepted and does nothing. |
+| `--no-count-primes` | Do not count primes. By default every run also prints π(limit), counted from the segment sieve, or, with a `--start` above the small-prime bound (about √limit), the count of primes in (start, limit]. Counting costs 0.2% at 10<sup>12</sup> and 0.4% at 10<sup>13</sup>. `--count-primes` is still accepted and does nothing. |
 | `--count-file=F` | Write each segment's range and prime count to F. Needs counting on. |
 | `--progress` | Live throughput and estimated completion. |
 | `--primetest=mr\|bpsw` | Primality test in the CPU fallback (Phase 2) for q above 10<sup>8</sup>. Default MR, the proved 12-base Miller–Rabin. |

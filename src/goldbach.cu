@@ -167,7 +167,8 @@ struct Options {
 // -------------------------------------------------------
 // One thread per word of the d_verified bitset. Counts BOTH the verified and
 // the unverified numbers of the segment into d_counts[COUNT_VERIFIED] and
-// d_counts[COUNT_UNVERIFIED]. The host requires the two to sum to
+// d_counts[COUNT_UNVERIFIED], and, when counting primes, the primes of the
+// segment's count range into d_counts[COUNT_PRIMES] (see COUNT_PRIMES). The host requires the two to sum to
 // seg_even_count and treats anything else as a system error. That makes this
 // gate fail closed: a launch that did not run, a grid that missed words, or a
 // counter that wrapped all leave the sum short of seg_even_count, rather than
@@ -200,17 +201,34 @@ static const int COUNT_Q_RANGE_ERROR = 2;
 // written only when p_min is tracked (--record-check or --window-max), and
 // read back with the counts rather than by a copy of its own.
 static const int COUNT_RECORD        = 3;
-static const int COUNT_SLOTS         = 4;
+// Fifth slot: prime counting (on unless --no-count-primes). The number of set
+// bits of d_seg_bits over the bit indices [i_lo, i_hi], i.e. the primes among
+// the odd q = q_low + 2i in the segment's count range, summed by this kernel
+// alongside the two counts and read back with them. It used to be a kernel of
+// its own with its own memset and copy, and one atomic per warp on a single
+// address: ~90 us of fixed cost per segment, 3.1% at 1e12, against ~17 us of
+// actual reading. Folded in here it costs 0.2% at 1e12 and 0.4% at 1e13.
+static const int COUNT_PRIMES        = 4;
+static const int COUNT_SLOTS         = 5;
 
+// COUNT: also count primes in d_seg_bits over [i_lo, i_hi]. The count range
+// spans seg_even_count odd numbers, possibly misaligned, so it can take one
+// word more than d_verified; the launch covers the larger of the two. The
+// bitset is final here: the sieve kernels ran before Phase 1, Phase 1 only
+// reads it, and the padding word zeroed after the sieve lies past i_hi.
+// COUNT = false compiles the prime count out: no extra load or reduction.
+template<bool COUNT>
 __global__ void count_unverified_kernel(
     const uint64_t* __restrict__ d_verified,
     uint64_t seg_even_count,
-    unsigned long long* __restrict__ d_counts)
+    unsigned long long* __restrict__ d_counts,
+    const uint64_t* __restrict__ d_seg_bits,
+    uint64_t i_lo, uint64_t i_hi)
 {
     uint64_t w = (uint64_t)blockIdx.x * blockDim.x + threadIdx.x;
     uint64_t verified_words = (seg_even_count + 63) / 64;
 
-    uint32_t verified = 0, unverified = 0;
+    uint32_t verified = 0, unverified = 0, primes = 0;
     if (w < verified_words) {
         uint64_t valid = seg_even_count - w * 64;   // >= 1, since w < verified_words
         uint64_t mask  = (valid < 64) ? ~(~0ULL << valid) : ~0ULL;
@@ -218,50 +236,39 @@ __global__ void count_unverified_kernel(
         verified   = (uint32_t)__popcll(word & mask);
         unverified = (uint32_t)__popcll(~word & mask);
     }
+    if (COUNT) {
+        uint64_t pw = (i_lo >> 6) + w;              // this thread's word of the count range
+        if (pw <= (i_hi >> 6)) {
+            uint64_t word = d_seg_bits[pw];
+            if (pw == (i_lo >> 6)) word &= ~0ULL << (i_lo & 63);
+            if (pw == (i_hi >> 6) && (i_hi & 63) != 63) word &= ~(~0ULL << ((i_hi & 63) + 1));
+            primes = (uint32_t)__popcll(word);
+        }
+    }
     for (int off = 16; off > 0; off >>= 1) {
         verified   += __shfl_down_sync(0xffffffffu, verified, off);
         unverified += __shfl_down_sync(0xffffffffu, unverified, off);
+        if (COUNT) primes += __shfl_down_sync(0xffffffffu, primes, off);
     }
 
-    __shared__ uint32_t warp_verified[32], warp_unverified[32];   // <= 2048 each
+    __shared__ uint32_t warp_verified[32], warp_unverified[32], warp_primes[32];   // <= 2048 each
     if ((threadIdx.x & 31) == 0) {
         warp_verified[threadIdx.x >> 5]   = verified;
         warp_unverified[threadIdx.x >> 5] = unverified;
+        if (COUNT) warp_primes[threadIdx.x >> 5] = primes;
     }
     __syncthreads();
     if (threadIdx.x == 0) {
-        unsigned long long block_verified = 0, block_unverified = 0;
+        unsigned long long block_verified = 0, block_unverified = 0, block_primes = 0;
         for (unsigned i = 0; i < blockDim.x / 32; i++) {
             block_verified   += warp_verified[i];
             block_unverified += warp_unverified[i];
+            if (COUNT) block_primes += warp_primes[i];
         }
         if (block_verified)   atomicAdd(&d_counts[COUNT_VERIFIED],   block_verified);
         if (block_unverified) atomicAdd(&d_counts[COUNT_UNVERIFIED], block_unverified);
+        if (COUNT && block_primes) atomicAdd(&d_counts[COUNT_PRIMES], block_primes);
     }
-}
-
-// Prime counting (on unless --no-count-primes): number of set bits in
-// d_seg_bits over the bit indices
-// [i_lo, i_hi], i.e. the primes among the odd q = q_low + 2i in that range.
-// A separate launch after both sieve kernels, so the sieve and Phase 1 kernels
-// are compiled exactly as without it. It costs 3.1% at 1e12 and 2.5% at 1e13,
-// measured against --no-count-primes.
-__global__ void count_segment_primes_kernel(
-    const uint64_t* __restrict__ d_seg_bits,
-    uint64_t i_lo, uint64_t i_hi,
-    unsigned long long* __restrict__ d_prime_count)
-{
-    uint64_t w = (i_lo >> 6) + (uint64_t)blockIdx.x * blockDim.x + threadIdx.x;
-    uint32_t n = 0;
-    if (w <= (i_hi >> 6)) {
-        uint64_t word = d_seg_bits[w];
-        if (w == (i_lo >> 6)) word &= ~0ULL << (i_lo & 63);
-        if (w == (i_hi >> 6) && (i_hi & 63) != 63) word &= ~(~0ULL << ((i_hi & 63) + 1));
-        n = (uint32_t)__popcll(word);
-    }
-    // One atomic per warp rather than per word.
-    for (int off = 16; off > 0; off >>= 1) n += __shfl_down_sync(0xffffffffu, n, off);
-    if ((threadIdx.x & 31) == 0 && n) atomicAdd(d_prime_count, (unsigned long long)n);
 }
 
 // -------------------------------------------------------
@@ -356,8 +363,7 @@ void run_gpu_worker(
         uint64_t* d_seg_bits = nullptr;
         uint64_t* d_verified = nullptr;   // bitset: 1 bit per even number
         uint64_t* d_p_batch  = nullptr;
-        unsigned long long* d_counts = nullptr;   // [COUNT_VERIFIED], [COUNT_UNVERIFIED], [COUNT_Q_RANGE_ERROR], [COUNT_RECORD]
-        unsigned long long* d_prime_count = nullptr;
+        unsigned long long* d_counts = nullptr;   // [COUNT_VERIFIED], [COUNT_UNVERIFIED], [COUNT_Q_RANGE_ERROR], [COUNT_RECORD], [COUNT_PRIMES]
 
         CUDA_CHECK(cudaMalloc(&d_seg_bits, seg_bytes));
         // d_verified holds one bit per even number; SEG_SIZE is the largest
@@ -369,7 +375,6 @@ void run_gpu_worker(
         // nullptr selects the RECORD=false Phase 1 kernels: without tracking
         // the default path runs exactly the kernels it ran before.
         unsigned long long* d_record = trackPmin ? &d_counts[COUNT_RECORD] : nullptr;
-        if (countPrimes) CUDA_CHECK(cudaMalloc(&d_prime_count, sizeof(unsigned long long)));
 
         CUDA_CHECK(cudaStreamSynchronize(stream));
 
@@ -391,24 +396,17 @@ void run_gpu_worker(
                                  d_seg_bits, THREADS_PER_BLOCK, stream);
             CUDA_CHECK(cudaGetLastError());
 
-            // --count-primes: count this segment's own odd q, [seg_start + 1,
+            // Prime counting: this segment's own odd q, [seg_start + 1,
             // seg_end + 1] clipped to COUNT_HIGH. The sieved span reaches
             // P_SMALL further down, but everything below seg_start - 1 is the
             // previous segment's q_high and already counted there, so these
-            // ranges tile [START + 1, COUNT_HIGH] exactly. Runs on the final
-            // bitset: same stream, after both sieve kernels.
+            // ranges tile [START + 1, COUNT_HIGH] exactly. Counted by
+            // count_unverified_kernel below, into d_counts[COUNT_PRIMES].
             uint64_t count_lo = seg_start + 1;
             uint64_t count_hi = std::min(q_high, COUNT_HIGH);
             bool count_this = countPrimes && count_lo <= count_hi;
-            if (count_this) {
-                uint64_t i_lo = (count_lo - q_low) / 2;
-                uint64_t i_hi = (count_hi - q_low) / 2;
-                uint64_t words = (i_hi >> 6) - (i_lo >> 6) + 1;
-                CUDA_CHECK(cudaMemsetAsync(d_prime_count, 0, sizeof(unsigned long long), stream));
-                count_segment_primes_kernel<<<(uint32_t)((words + 255) / 256), 256, 0, stream>>>(
-                    d_seg_bits, i_lo, i_hi, d_prime_count);
-                CUDA_CHECK(cudaGetLastError());
-            }
+            uint64_t count_i_lo = count_this ? (count_lo - q_low) / 2 : 0;
+            uint64_t count_i_hi = count_this ? (count_hi - q_low) / 2 : 0;
 
             // Zero the word just past this segment's bits, so the transposed
             // kernel's one-word overread sees 0 rather than the previous
@@ -437,22 +435,27 @@ void run_gpu_worker(
             }
 
             // C. Count verified and unverified numbers
-            unsigned long long counts[COUNT_SLOTS] = {0, 0, 0, 0};
+            unsigned long long counts[COUNT_SLOTS] = {0, 0, 0, 0, 0};
 
-            uint32_t count_blocks = (uint32_t)((verified_words + 255) / 256);
-            count_unverified_kernel<<<count_blocks, 256, 0, stream>>>(d_verified, seg_even_count, d_counts);
+            uint64_t count_words = verified_words;
+            if (count_this)
+                count_words = std::max(count_words, (count_i_hi >> 6) - (count_i_lo >> 6) + 1);
+            uint32_t count_blocks = (uint32_t)((count_words + 255) / 256);
+            if (count_this)
+                count_unverified_kernel<true><<<count_blocks, 256, 0, stream>>>(
+                    d_verified, seg_even_count, d_counts, d_seg_bits, count_i_lo, count_i_hi);
+            else
+                count_unverified_kernel<false><<<count_blocks, 256, 0, stream>>>(
+                    d_verified, seg_even_count, d_counts, nullptr, 0, 0);
             // A failed launch is reported only here: the copy and the sync
             // below would both return success and leave the counts at 0.
             CUDA_CHECK(cudaGetLastError());
-            // One copy brings back both counts, Phase 1's range-error flag and,
-            // when tracked, Phase 1's packed p_min maximum.
+            // One copy brings back both counts, Phase 1's range-error flag,
+            // when tracked Phase 1's packed p_min maximum, and when counting
+            // the segment's prime count.
             CUDA_CHECK(cudaMemcpyAsync(counts, d_counts, COUNT_SLOTS * sizeof(unsigned long long),
                                        cudaMemcpyDeviceToHost, stream));
 
-            unsigned long long seg_prime_count = 0;
-            if (count_this)
-                CUDA_CHECK(cudaMemcpyAsync(&seg_prime_count, d_prime_count, sizeof(unsigned long long),
-                                           cudaMemcpyDeviceToHost, stream));
             CUDA_CHECK(cudaStreamSynchronize(stream));
 
             // Before anything from this segment is used: a q outside both
@@ -482,6 +485,7 @@ void run_gpu_worker(
             }
 
             if (count_this) {
+                const unsigned long long seg_prime_count = counts[COUNT_PRIMES];
                 g_prime_count_total.fetch_add(seg_prime_count, std::memory_order_relaxed);
                 std::lock_guard<std::mutex> lk(g_count_mutex);
                 g_segment_counts.push_back({count_lo, count_hi, seg_prime_count});
@@ -552,7 +556,6 @@ void run_gpu_worker(
         CUDA_CHECK(cudaFree(d_verified));
         CUDA_CHECK(cudaFree(d_p_batch));
         CUDA_CHECK(cudaFree(d_counts));
-        if (d_prime_count) CUDA_CHECK(cudaFree(d_prime_count));
 
     } catch (const std::exception& e) {
         safe_log("[!] FATAL ERROR in GPU ", device_id, " Worker: ", e.what());
@@ -703,7 +706,7 @@ void print_usage(const char* prog) {
               << "                   primes up to LIMIT from the segment sieve and prints\n"
               << "                   pi(LIMIT) = ..., or, when START exceeds the small-prime\n"
               << "                   bound (about sqrt(LIMIT)), primes in (START, LIMIT] = ...\n"
-              << "                   Counting costs 3.1% at 1e12 and 2.5% at 1e13.\n"
+              << "                   Counting costs 0.2% at 1e12 and 0.4% at 1e13.\n"
               << "  --count-primes   Accepted for compatibility; counting is the default\n"
               << "  --count-file=F   Write one line per segment to F (needs counting on):\n"
               << "                   \"A B count\", count = number of primes in [A, B]\n"
