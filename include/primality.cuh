@@ -113,9 +113,18 @@ __device__ bool gpu_sprp_base2(uint64_t n) {
     return false;
 }
 
-// Strong Lucas test — all products go through mulmod64 to avoid overflow
-__device__ bool gpu_strong_lucas_prp(uint64_t n,
-                                     int64_t D, int64_t P, int64_t Q) {
+// Lucas half of the Baillie-PSW test, following Baillie, Fiori and Wagstaff,
+// "Strengthening the Baillie-PSW primality test", Math. Comp. 90 (2021),
+// arXiv:2006.14425 (cited below as [BFW] with its section and equation).
+// One pass computes, for n + 1 = d * 2^s with d odd:
+//   strong: U_d = 0 or V_{d*2^r} = 0 for some 0 <= r < s    [BFW 2.4, (11), (12)]
+//   v:      V_{n+1} = 2Q (mod n)                            [BFW 1, (2); 6, step 4]
+//   euler:  Q^((n+1)/2) = Q * (Q/n) (mod n)                 [BFW 6, step 5]
+// A prime n with (D/n) = -1 and gcd(n, 2QD) = 1 satisfies all three.
+struct LucasConditions { bool strong, v, euler; };
+
+__device__ LucasConditions gpu_lucas_conditions(uint64_t n,
+                                                int64_t D, int64_t P, int64_t Q) {
     uint64_t d = n + 1, s = 0;
     while ((d & 1) == 0) { d >>= 1; s++; }
 
@@ -130,6 +139,9 @@ __device__ bool gpu_strong_lucas_prp(uint64_t n,
     uint64_t uU = 0, uV = 2 % n, uQk = 1 % n;
     uint64_t uP = smod(P), uD = smod(D), uQ_base = smod(Q);
 
+    // Left-to-right over the bits of d: (U_k, V_k, Q^k) -> index 2k by
+    // [BFW (13)-(15)], then -> 2k + 1 by [BFW (16)-(18)], an odd numerator
+    // made even by adding n before halving [BFW 2.4].
     int lead = 63 - __clzll(d);
     for (int bit = lead; bit >= 0; bit--) {
         // Double
@@ -154,30 +166,45 @@ __device__ bool gpu_strong_lucas_prp(uint64_t n,
         }
     }
 
-    if (uU == 0) return true;
-    if (uV == 0) return true;
-    for (uint64_t r = 0; r < s-1; r++) {
+    // Now uU = U_d, uV = V_d, uQk = Q^d. Double s - 1 more times, to
+    // V_{d*2^(s-1)} = V_{(n+1)/2} and Q^((n+1)/2), checking (12) on the way.
+    LucasConditions c;
+    c.strong = (uU == 0) || (uV == 0);                                 // (11), (12) at r = 0
+    for (uint64_t r = 1; r < s; r++) {
         uint64_t twoQk = mulmod64(2, uQk, n);
         uV  = (uint64_t)(((__uint128_t)mulmod64(uV, uV, n) + n - twoQk) % n);
         uQk = mulmod64(uQk, uQk, n);
-        if (uV == 0) return true;
+        if (uV == 0) c.strong = true;                                  // (12) at r
     }
-    return false;
+    // One more doubling gives V_{n+1} [BFW (14)]; compare with 2Q [BFW (2)].
+    uint64_t Vn1 = (uint64_t)(((__uint128_t)mulmod64(uV, uV, n) + n - mulmod64(2, uQk, n)) % n);
+    c.v = (Vn1 == mulmod64(2, uQ_base, n));
+    // Euler's criterion for Q, with uQk = Q^((n+1)/2) [BFW 6, step 5].
+    int jq = gpu_jacobi(Q, n);
+    uint64_t want = (jq == 1) ? uQ_base : (jq == -1) ? (uQ_base ? n - uQ_base : 0) : 0;
+    c.euler = (uQk == want);
+    return c;
 }
 
+// Baillie-PSW as recommended in [BFW 6] ("enhanced BPSW"), steps (1)-(5).
 __device__ bool gpu_is_prime_bpsw(uint64_t n) {
     if (n < 2)  return false;
     if (n == 2 || n == 3) return true;
     if ((n & 1) == 0) return false;
+    // (1) Strong probable prime to base 2 [BFW 2.2, (5), (6); 6, step 1].
     if (!gpu_sprp_base2(n)) return false;
 
-    // Find D via Method A*: the first of 5, -7, 9, -11, ... with (D/n) = -1.
+    // (2) Method A* [BFW 2.3]: D is the first of 5, -7, 9, -11, ... with
+    // (D/n) = -1; P = 1, Q = (1 - D)/4, and if that makes Q = -1 (D = 5),
+    // P = Q = 5. A D with (D/n) = 0 proves n composite unless n divides |D|
+    // [BFW 3, step 2; 6, step 2]; if it does, that D is skipped.
     //
-    // For a perfect square no such D exists, so it is rejected first and the
-    // search then needs no cap: for every other odd n some D has (D/n) = -1.
-    // The search used to stop after 40 tries and call n a perfect square,
-    // which rejected primes needing more: 16 below 2^32, the smallest
-    // 452980999, up to 49 tries.
+    // A perfect square has no such D. [BFW 6, suggestion 3] tests for one
+    // after about 20 D's; here an exact integer test runs first, so the search
+    // needs no cap: for every other odd n some D has (D/n) = -1. The search
+    // used to stop after 40 tries and call n a perfect square, which rejected
+    // primes needing more: 16 below 2^32, the smallest 452980999, up to 49
+    // tries, and near 2^64 primes need 80 or more.
     if (is_perfect_square_u64(n)) return false;
     int64_t D = 5;
     int step = 2;
@@ -186,7 +213,7 @@ __device__ bool gpu_is_prime_bpsw(uint64_t n) {
         if (j == -1) break;
         if (j == 0) {
             uint64_t absD = (D >= 0) ? (uint64_t)D : (uint64_t)(-D);
-            if (absD % n != 0) return false;  // genuine factor: 1 < gcd(|D|,n) < n
+            if (absD % n != 0) return false;  // |D| < n, or n does not divide |D|
             // else n divides |D| (only happens for tiny n like n=5 where D=n)
             // skip this D and try the next one
         }
@@ -197,7 +224,9 @@ __device__ bool gpu_is_prime_bpsw(uint64_t n) {
     int64_t P = 1, Q = (1 - D) / 4;
     if (Q == -1) { P = 5; Q = 5; }
 
-    return gpu_strong_lucas_prp(n, D, P, Q);
+    // (3) strong Lucas, (4) V_{n+1} = 2Q, (5) Euler's criterion for Q.
+    LucasConditions c = gpu_lucas_conditions(n, D, P, Q);
+    return c.strong && c.v && c.euler;
 }
 
 // ---- host ----
@@ -253,54 +282,7 @@ inline bool cpu_sprp_base2(uint64_t n) {
     return false;
 }
 
-inline bool cpu_strong_lucas_prp(uint64_t n,
-                                  int64_t D, int64_t P, int64_t Q) {
-    uint64_t d = n + 1, s = 0;
-    while ((d & 1) == 0) { d >>= 1; s++; }
-
-    auto mm = [&](uint64_t a, uint64_t b) -> uint64_t {
-        return (uint64_t)((__uint128_t)a * b % n);
-    };
-    auto smod = [&](int64_t x) -> uint64_t {
-        if (x >= 0) return (uint64_t)x % n;
-        uint64_t mag = (uint64_t)(-(x + 1)) + 1ULL;
-        uint64_t r = mag % n;
-        return (r == 0) ? 0 : n - r;
-    };
-
-    uint64_t uU = 0, uV = 2 % n, uQk = 1 % n;
-    uint64_t uP = smod(P), uD = smod(D), uQ_base = smod(Q);
-
-    int lead = 63 - __builtin_clzll(d);
-    for (int bit = lead; bit >= 0; bit--) {
-        uint64_t U2  = mm(uU, uV);
-        uint64_t V2  = (uint64_t)(((__uint128_t)mm(uV, uV) + n - mm(2, uQk)) % n);
-        uint64_t Q2  = mm(uQk, uQk);
-        uU = U2; uV = V2; uQk = Q2;
-
-        if ((d >> bit) & 1) {
-            uint64_t tU = (uint64_t)(((__uint128_t)mm(uP, uU) + uV) % n);
-            tU = (tU & 1) ? halve_mod(tU, n) : (tU >> 1);
-
-            uint64_t tV = (uint64_t)(((__uint128_t)mm(uD, uU) + mm(uP, uV)) % n);
-            tV = (tV & 1) ? halve_mod(tV, n) : (tV >> 1);
-
-            uU = tU; uV = tV;
-            uQk = mm(uQk, uQ_base);
-        }
-    }
-
-    if (uU == 0) return true;
-    if (uV == 0) return true;
-    for (uint64_t r = 0; r < s-1; r++) {
-        uV  = (uint64_t)(((__uint128_t)mm(uV, uV) + n - mm(2, uQk)) % n);
-        uQk = mm(uQk, uQk);
-        if (uV == 0) return true;
-    }
-    return false;
-}
-
-// Jacobi symbol (a/n), host-side — needed by cpu_is_prime_bpsw below.
+// Jacobi symbol (a/n), host-side — needed by cpu_lucas_conditions below.
 inline int cpu_jacobi(int64_t a_signed, uint64_t n) {
     if (n == 1) return 1;
     uint64_t a;
@@ -325,13 +307,69 @@ inline int cpu_jacobi(int64_t a_signed, uint64_t n) {
     return (n == 1) ? result : 0;
 }
 
+// Host twin of gpu_lucas_conditions; see there for the conditions and [BFW].
+inline LucasConditions cpu_lucas_conditions(uint64_t n,
+                                            int64_t D, int64_t P, int64_t Q) {
+    uint64_t d = n + 1, s = 0;
+    while ((d & 1) == 0) { d >>= 1; s++; }
+
+    auto mm = [&](uint64_t a, uint64_t b) -> uint64_t {
+        return (uint64_t)((__uint128_t)a * b % n);
+    };
+    auto smod = [&](int64_t x) -> uint64_t {
+        if (x >= 0) return (uint64_t)x % n;
+        uint64_t mag = (uint64_t)(-(x + 1)) + 1ULL;
+        uint64_t r = mag % n;
+        return (r == 0) ? 0 : n - r;
+    };
+
+    uint64_t uU = 0, uV = 2 % n, uQk = 1 % n;
+    uint64_t uP = smod(P), uD = smod(D), uQ_base = smod(Q);
+
+    // [BFW (13)-(18)], as in gpu_lucas_conditions.
+    int lead = 63 - __builtin_clzll(d);
+    for (int bit = lead; bit >= 0; bit--) {
+        uint64_t U2  = mm(uU, uV);
+        uint64_t V2  = (uint64_t)(((__uint128_t)mm(uV, uV) + n - mm(2, uQk)) % n);
+        uint64_t Q2  = mm(uQk, uQk);
+        uU = U2; uV = V2; uQk = Q2;
+
+        if ((d >> bit) & 1) {
+            uint64_t tU = (uint64_t)(((__uint128_t)mm(uP, uU) + uV) % n);
+            tU = (tU & 1) ? halve_mod(tU, n) : (tU >> 1);
+
+            uint64_t tV = (uint64_t)(((__uint128_t)mm(uD, uU) + mm(uP, uV)) % n);
+            tV = (tV & 1) ? halve_mod(tV, n) : (tV >> 1);
+
+            uU = tU; uV = tV;
+            uQk = mm(uQk, uQ_base);
+        }
+    }
+
+    LucasConditions c;
+    c.strong = (uU == 0) || (uV == 0);                                 // (11), (12) at r = 0
+    for (uint64_t r = 1; r < s; r++) {
+        uV  = (uint64_t)(((__uint128_t)mm(uV, uV) + n - mm(2, uQk)) % n);
+        uQk = mm(uQk, uQk);
+        if (uV == 0) c.strong = true;                                  // (12) at r
+    }
+    uint64_t Vn1 = (uint64_t)(((__uint128_t)mm(uV, uV) + n - mm(2, uQk)) % n);
+    c.v = (Vn1 == mm(2, uQ_base));                                     // [BFW (2)]
+    int jq = cpu_jacobi(Q, n);                                         // [BFW 6, step 5]
+    uint64_t want = (jq == 1) ? uQ_base : (jq == -1) ? (uQ_base ? n - uQ_base : 0) : 0;
+    c.euler = (uQk == want);
+    return c;
+}
+
+// Host twin of gpu_is_prime_bpsw: [BFW 6], steps (1)-(5).
 inline bool cpu_is_prime_bpsw(uint64_t n) {
     if (n < 2)  return false;
     if (n == 2 || n == 3) return true;
     if ((n & 1) == 0) return false;
-    if (!cpu_sprp_base2(n)) return false;
+    if (!cpu_sprp_base2(n)) return false;                    // (1)
 
-    // Same search as gpu_is_prime_bpsw: reject perfect squares, then no cap.
+    // (2) Method A*, as in gpu_is_prime_bpsw: reject perfect squares, then
+    // search without a cap.
     if (is_perfect_square_u64(n)) return false;
     int64_t D = 5;
     int step = 2;
@@ -340,7 +378,7 @@ inline bool cpu_is_prime_bpsw(uint64_t n) {
         if (j == -1) break;
         if (j == 0) {
             uint64_t absD = (D >= 0) ? (uint64_t)D : (uint64_t)(-D);
-            if (absD % n != 0) return false;  // genuine factor: 1 < gcd(|D|,n) < n
+            if (absD % n != 0) return false;  // |D| < n, or n does not divide |D|
             // else n divides |D| (only happens for tiny n like n=5 where D=n)
             // skip this D and try the next one
         }
@@ -351,5 +389,7 @@ inline bool cpu_is_prime_bpsw(uint64_t n) {
     int64_t P = 1, Q = (1 - D) / 4;
     if (Q == -1) { P = 5; Q = 5; }
 
-    return cpu_strong_lucas_prp(n, D, P, Q);
+    // (3) strong Lucas, (4) V_{n+1} = 2Q, (5) Euler's criterion for Q.
+    LucasConditions c = cpu_lucas_conditions(n, D, P, Q);
+    return c.strong && c.v && c.euler;
 }

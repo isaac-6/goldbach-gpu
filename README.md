@@ -222,7 +222,7 @@ implementation or published data rather than against itself:
 |---|---|
 | `test_gpu_sieve` | GPU segment sieve against an independently written CPU sieve, over fixed and randomised ranges including boundary cases. |
 | `test_phase1` | GPU verification against a CPU reference. Compares across prime-list prefixes, so the comparison resolves *which* prime succeeded rather than the saturated yes/no verdict. Walks ranges in segments with the verifier's own segment geometry, including a partial last segment and a switch between the two kernels, at batch sizes down to one prime per launch. |
-| `test_primality` | Baillie–PSW against the 12-base deterministic Miller–Rabin, device and host, with emphasis above 2<sup>63</sup>; plus inputs with known verdicts (confirmed with sympy): the smallest number that is a strong pseudoprime to every prime base up to 31, and primes near 2<sup>64</sup> whose parameter search needs up to 82 steps. |
+| `test_primality` | Baillie–PSW against the 12-base deterministic Miller–Rabin, device and host, with emphasis above 2<sup>63</sup>; plus inputs with known verdicts (confirmed with sympy): the smallest number that is a strong pseudoprime to every prime base up to 31, and primes near 2<sup>64</sup> whose parameter search needs up to 82 steps; and the V<sub>n+1</sub> ≡ 2Q check against the Lucas-V pseudoprimes tabulated by Baillie, Fiori and Wagstaff. |
 | `test_bpsw_spsp` | Every base-2 strong pseudoprime below 2<sup>32</sup> (2,314, generated independently) and the first ten strong Lucas pseudoprimes published by Baillie, Fiori and Wagstaff must be rejected by Baillie–PSW on device and host, and 126,897 primes accepted. |
 | `test_mr_spsp` | The Miller–Rabin half of the same controls, as its own test because Miller–Rabin is the default in Phase 2: every base-2 strong pseudoprime below 2<sup>32</sup> and the ten strong Lucas pseudoprimes rejected, the 126,897 primes accepted, on device and host. |
 | `test_bitset_race` | Repeated parallel bitset construction against a single-threaded reference, at both word-aligned and misaligned thread boundaries. |
@@ -271,7 +271,11 @@ bitsets, and a q outside both would end the run as an internal error. The CPU
 fallback (Phase 2) looks q up in a table below 10<sup>8</sup>; above that it
 uses, by default, a 12-base deterministic Miller–Rabin, whose base set is
 *proved* deterministic for all *n* < 2<sup>64</sup>. `--primetest=bpsw` selects
-Baillie–PSW instead. Baillie–PSW has no such proof, but it is exact below
+Baillie–PSW instead, in the strengthened form Baillie, Fiori and Wagstaff
+recommend (*Math. Comp.* 90, 2021; arXiv:2006.14425, Section 6): a strong
+base-2 test, Method A* parameters, the strong Lucas test, and two further
+checks, V<sub>n+1</sub> ≡ 2Q and Euler's criterion for Q, both mod n.
+Baillie–PSW has no such proof, but it is exact below
 2<sup>64</sup> by computation: Baillie, Fiori and Wagstaff report that none of
 the 118,968,378 base-2 pseudoprimes below 2<sup>64</sup> is a Lucas pseudoprime
 for Method A*, the parameter choice used here, and in a one-off run against

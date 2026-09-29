@@ -35,6 +35,13 @@
   No reported result depended on it: every published run reported 0 Phase 2
   fallbacks, so none entered Phase 2. `single_check` uses its own
   Miller-Rabin and `big_check` uses GMP; neither was affected.
+- **BPSW follows Baillie, Fiori and Wagstaff (2021).** Their recommended test
+  (arXiv:2006.14425, Section 6) adds two checks to the strong Lucas test:
+  V_{n+1} = 2Q and Euler's criterion Q^((n+1)/2) = Q * (Q/n), both mod n. Both
+  are now applied, host and device, at the cost of one more doubling step; each
+  step cites the paper. BPSW still rejects every base-2 pseudoprime below 2^64
+  (the Feitsma-Galway list) and agrees with Miller-Rabin on every odd n below
+  2^32. Before, the code implemented the original test of their Section 3.
 - **Unreachable primality fallback in Phase 1 removed.** `is_prime_q`, the
   scalar kernel's lookup, fell back to BPSW or Miller-Rabin for a q outside
   both bitsets. None can occur: with p <= P_SMALL, every q = n - p satisfies

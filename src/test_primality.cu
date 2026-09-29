@@ -28,6 +28,59 @@ __global__ void compare_kernel(const uint64_t* n, int count,
 // Counts values on which the four tests (device and host, MR and BPSW) do not
 // all agree. With expect, each value must also match its known verdict
 // (1 = prime, 0 = composite), so a fault shared by both tests still shows.
+// Lucas conditions of [BFW] for given (n, D, P, Q), on the device.
+__global__ void lucas_kernel(const uint64_t* n, const int64_t* dpq, int count, unsigned char* out) {
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i >= count) return;
+    LucasConditions c = gpu_lucas_conditions(n[i], dpq[3 * i], dpq[3 * i + 1], dpq[3 * i + 2]);
+    out[i] = (c.strong ? 1 : 0) | (c.v ? 2 : 0) | (c.euler ? 4 : 0);
+}
+
+// The V_{n+1} = 2Q check (BPSW step 4) only ever rejects a composite that
+// already passed steps 1-3, and none is known, so no primality verdict can
+// show that it is computed. This pins it to Baillie, Fiori and Wagstaff
+// (arXiv:2006.14425): the five Lucas-V pseudoprimes of their Table 2 must
+// satisfy it with the Method A* parameters they state, and n = 323, their
+// Section 2.4 example (V_324 = 135, 2Q = 10), must not. None is a strong Lucas
+// probable prime. Device and host.
+static uint64_t run_lucas_v() {
+    struct { uint64_t n; int64_t D, P, Q; bool v; } c[] = {
+        {323ULL,             5, 5, 5, false},
+        {913ULL,             5, 5, 5, true},
+        {150267335403ULL,    5, 5, 5, true},
+        {430558874533ULL,    5, 5, 5, true},
+        {14760229232131ULL, -7, 1, 2, true},
+        {936916995253453ULL, 5, 5, 5, true},
+    };
+    const int count = sizeof(c) / sizeof(c[0]);
+    std::vector<uint64_t> n(count); std::vector<int64_t> dpq(3 * count);
+    for (int i = 0; i < count; i++) { n[i] = c[i].n; dpq[3*i] = c[i].D; dpq[3*i+1] = c[i].P; dpq[3*i+2] = c[i].Q; }
+    uint64_t* d_n; int64_t* d_dpq; unsigned char* d_out;
+    CK(cudaMalloc(&d_n, count * sizeof(uint64_t))); CK(cudaMalloc(&d_dpq, 3 * count * sizeof(int64_t)));
+    CK(cudaMalloc(&d_out, count));
+    CK(cudaMemcpy(d_n, n.data(), count * sizeof(uint64_t), cudaMemcpyHostToDevice));
+    CK(cudaMemcpy(d_dpq, dpq.data(), 3 * count * sizeof(int64_t), cudaMemcpyHostToDevice));
+    lucas_kernel<<<1, 32>>>(d_n, d_dpq, count, d_out);
+    CK(cudaGetLastError());
+    CK(cudaDeviceSynchronize());
+    std::vector<unsigned char> dev(count);
+    CK(cudaMemcpy(dev.data(), d_out, count, cudaMemcpyDeviceToHost));
+    uint64_t bad = 0;
+    for (int i = 0; i < count; i++) {
+        LucasConditions h = cpu_lucas_conditions(c[i].n, c[i].D, c[i].P, c[i].Q);
+        bool ok = h.v == c[i].v && ((dev[i] & 2) != 0) == c[i].v && !h.strong && !(dev[i] & 1);
+        if (!ok) {
+            bad++;
+            printf("    n=%llu: V_{n+1}=2Q host %d device %d (expected %d); strong host %d device %d (expected 0)\n",
+                   (unsigned long long)c[i].n, (int)h.v, (dev[i] & 2) != 0, (int)c[i].v, (int)h.strong, dev[i] & 1);
+        }
+    }
+    printf("  [Lucas-V condition: BFW Table 2 and n = 323] %d values -> %llu disagreements\n",
+           count, (unsigned long long)bad);
+    CK(cudaFree(d_n)); CK(cudaFree(d_dpq)); CK(cudaFree(d_out));
+    return bad;
+}
+
 static uint64_t run_batch(const std::vector<uint64_t>& vals, const char* label,
                           const std::vector<int>* expect = nullptr) {
     int count = (int)vals.size();
@@ -138,6 +191,8 @@ int main() {
         std::vector<int> expect = {0, 1, 1, 1, 1, 1};
         total += run_batch(v, "known verdicts: psi_11 and long searches near 2^64", &expect);
     }
+
+    total += run_lucas_v();
 
     printf("\nTOTAL DISAGREEMENTS: %llu\n", (unsigned long long)total);
     if (total) { printf("FAIL\n"); return 1; }
