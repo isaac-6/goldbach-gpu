@@ -132,7 +132,8 @@ Verifies every even number from 4 to the given limit. Useful options:
 | `--seg-size=N` | Even integers per segment: even, below 2<sup>32</sup>. Derived from free VRAM if omitted. |
 | `--p-small=N` | Prime search bound for the GPU phase, 3 to 4·10<sup>9</sup>. Default 10<sup>6</sup>. |
 | `--batch-size=N` | Primes uploaded per Phase 1 kernel launch, 1 to 2<sup>32</sup>. Default 10<sup>5</sup>. |
-| `--record-check` | Print each new maximum p<sub>min</sub> as it is found. Requires the default `--start`. |
+| `--record-check` | Print each new maximum p<sub>min</sub> as it is found, and the overall maximum at the end. Requires the default `--start`. |
+| `--window-max` | Print the largest p<sub>min</sub> over [start, limit] and the smallest *n* attaining it, for any `--start`. Numbers resolved by the CPU fallback are included. A window maximum, not a p-record. |
 | `--count-primes` | Also print π(limit), counted from the segment sieve. With a `--start` above the small-prime bound (about √limit), print the count of primes in (start, limit] instead. |
 | `--count-file=F` | With `--count-primes`, write each segment's range and prime count to F. |
 | `--progress` | Live throughput and estimated completion. |
@@ -250,10 +251,12 @@ or individually:
 The `--record-check` flag extends this to a live run. It reports each new maximum
 minimal prime as it is found; a separate 10<sup>14</sup> run with the flag set
 emitted 22 such records, all matching the published table, six of them above
-10<sup>13</sup> where the CPU-side test does not reach. The flag costs 26.6% at
-10<sup>14</sup>, measured at v3.0.0 with both the flagged and unflagged runs on
-that version, so it is off by default and the timings above are measured without
-it.
+10<sup>13</sup> where the CPU-side test does not reach. At v3.0.0 the flag cost
+26.6% at 10<sup>14</sup>, and at v3.2.0 as first written 36% at 10<sup>12</sup>:
+every GPU thread ended with an atomic maximum on one address. Skipping the
+atomic when it cannot raise the stored value brings `--record-check` and
+`--window-max` to 2.2% at 10<sup>12</sup> (7.53 s against 7.37 s, five runs
+each). Both are off by default, and the timings above are measured without them.
 
 The flag reports at most one record per segment, so its output is a
 subsequence of the true records. Numbers resolved by the CPU fallback contribute

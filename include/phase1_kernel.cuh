@@ -101,6 +101,20 @@ __device__ __forceinline__ unsigned long long record_encode(uint64_t p, uint64_t
     return ((unsigned long long)p << RECORD_IDX_BITS) | (RECORD_IDX_MASK - idx);
 }
 
+// atomicMax on the packed record, skipped when it cannot raise the maximum.
+// Every thread of a segment ends on the same address, and letting all of them
+// through cost 36% of the run at 1e12 under --record-check; with the skip it
+// costs ~4.5%. The skip is exact: the stored maximum only grows, so once it
+// is >= enc the atomic would change nothing. The comparison is on the whole
+// packed value, not on p alone, so an equal p_min at a smaller n (larger
+// complemented index) is still larger and still stored: ties keep resolving
+// to the smallest n.
+__device__ __forceinline__ void record_max(unsigned long long* d_record, unsigned long long enc) {
+    if (cuda::atomic_ref<unsigned long long, cuda::thread_scope_device>(*d_record)
+            .load(cuda::memory_order_relaxed) < enc)
+        atomicMax(d_record, enc);
+}
+
 template<bool RECORD>
 __global__ void goldbach_phase1_kernel(
     const uint64_t* __restrict__ d_small, uint64_t small_high,
@@ -141,7 +155,7 @@ __global__ void goldbach_phase1_kernel(
             // hit, p ceases to be p_min and the record output becomes wrong
             // while the verification result stays correct. The host asserts the
             // prime array is sorted ascending at startup.
-            if (RECORD) atomicMax(d_record, record_encode(p, tid));
+            if (RECORD) record_max(d_record, record_encode(p, tid));
             return;
         }
     }
@@ -239,7 +253,7 @@ __global__ void goldbach_phase1_transposed_kernel(
     if (RECORD && rec_p) {
         // Lowest set bit is the smallest n attaining this p_min.
         uint64_t idx = group_start + (uint64_t)(__ffsll((unsigned long long)rec_bits) - 1);
-        if (idx < seg_even_count) atomicMax(d_record, record_encode(rec_p, idx));
+        if (idx < seg_even_count) record_max(d_record, record_encode(rec_p, idx));
     }
 }
 
@@ -276,6 +290,7 @@ static inline void launch_goldbach_phase1(
     // transposed kernel reads q from the segment bitset by construction.
     // d_record == nullptr selects the RECORD=false instantiation, so the
     // tracking code is not merely branched around -- it is not compiled in.
+    // The verifier passes it only under --record-check or --window-max.
     if (seg_even_start > 2 * p_small + 128) {
         uint64_t groups = (seg_even_count + 63) / 64;
         uint32_t blocks = (uint32_t)((groups + threads_per_block - 1) / threads_per_block);

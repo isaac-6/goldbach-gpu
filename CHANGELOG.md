@@ -82,6 +82,11 @@
   thread no longer outlives a variable it read.
 
 ### Changed
+- **p_min tracking is 16 times cheaper.** Every thread ended on an atomic maximum
+  of one address; it is now skipped when it cannot raise the stored value,
+  compared on the full packed (p_min, index) value so ties still resolve to
+  the smallest n. `--record-check` cost 36% at 1e12 and now costs 2.2%, as does
+  `--window-max`. The default path does not track p_min and is unchanged.
 - A Phase 2 failure reads "no partition with p ≤ 10^8 found for n = …": Phase 2
   searches p ≤ 10^8, so this is a search limit, not a counterexample.
 - **Phase 2 tests q > 10^8 with Miller-Rabin by default.** The 12-base
@@ -90,6 +95,9 @@
   place `goldbach` tests primality, and no published run reached it.
 
 ### Added
+- `--window-max`: the largest p_min over [START, N] and the smallest n
+  attaining it, for any START, Phase 2 numbers included. `--record-check`
+  prints the same overall maximum at the end.
 - `--count-primes` with a START above the small-prime bound (about sqrt(N))
   prints the window count, `primes in (START, N] = ...`, instead of refusing.
 - `--count-primes` and `--count-file`.
