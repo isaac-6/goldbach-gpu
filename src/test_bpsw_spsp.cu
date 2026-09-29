@@ -1,26 +1,31 @@
-// Negative control for Baillie-PSW: every base-2 strong pseudoprime below 2^32.
+// Negative and positive controls for the primality tests Phase 2 uses:
+// Baillie-PSW and 12-base Miller-Rabin, on device and host.
 //
-// A strong base-2 probable-prime test alone accepts these composites; the
-// strong Lucas half of BPSW is what rejects them. test_primality compares
-// BPSW against Miller-Rabin on random inputs, which almost never include a
-// base-2 strong pseudoprime (about 2,300 below 2^32 among 2^31 odd numbers),
-// so a Lucas step that always passed went unnoticed there. This test feeds
-// all of them to the production BPSW, device and host, and requires every one
-// to be rejected.
+// Negative controls, every one of which must be rejected by all four tests:
+//   - every base-2 strong pseudoprime below 2^32 (2,314). A strong base-2 test
+//     alone accepts them; BPSW's strong Lucas step and MR's other bases are
+//     what reject them. test_primality samples random inputs, which almost
+//     never include one, so a Lucas step that always passed went unnoticed
+//     there.
+//   - the first ten strong Lucas pseudoprimes for Method A* parameters, as
+//     published in Baillie, Fiori and Wagstaff, "Strengthening the
+//     Baillie-PSW primality test" (arXiv:2006.14425), Section 2.4. The strong
+//     Lucas step alone accepts them; BPSW's base-2 step is what rejects them,
+//     so a BPSW that skipped that step passes the first set but not this one.
 //
-// The pseudoprimes are generated here, independently of primality.cuh: an
-// odd-only segmented sieve decides compositeness, and a 32-bit Montgomery
-// strong base-2 test decides pseudoprimality. Neither shares code with the
-// implementation under test.
+// The pseudoprimes below 2^32 are generated here, independently of
+// primality.cuh: an odd-only segmented sieve decides compositeness, and a
+// 32-bit Montgomery strong base-2 test decides pseudoprimality. Neither
+// shares code with the implementations under test.
 //
 // Guards against a vacuous pass:
 //   - the generator must find exactly EXPECTED_SPSP, and the known first five
 //     (2047 = 23*89, 3277 = 29*113, 4033 = 37*109, 4681 = 31*151, 8321 =
 //     53*157);
-//   - BPSW must ACCEPT every prime below 2^20 and every prime in the last
-//     10^6 below 2^32, so a BPSW that rejected everything would also fail.
+//   - all four tests must ACCEPT every prime below 2^20 and every prime in the
+//     last 10^6 below 2^32, so a test that rejected everything would also fail.
 //
-// Exit 0 = all rejected and all primes accepted, 1 = otherwise.
+// Exit 0 = all composites rejected and all primes accepted, 1 = otherwise.
 
 #include <cstdio>
 #include <cstdint>
@@ -121,12 +126,14 @@ static bool strong_base2(uint32_t n) {
 // -------------------------------------------------------
 // Production code under test
 // -------------------------------------------------------
+// out[i] bit 0 = device BPSW verdict, bit 1 = device Miller-Rabin verdict.
 __global__ void bpsw_kernel(const uint64_t* n, uint64_t count, unsigned char* out) {
     uint64_t i = (uint64_t)blockIdx.x * blockDim.x + threadIdx.x;
-    if (i < count) out[i] = gpu_is_prime_bpsw(n[i]) ? 1 : 0;
+    if (i < count) out[i] = (gpu_is_prime_bpsw(n[i]) ? 1 : 0)
+                          | (gpu_is_prime_miller_rabin(n[i]) ? 2 : 0);
 }
 
-static std::vector<unsigned char> device_bpsw(const std::vector<uint64_t>& v) {
+static std::vector<unsigned char> device_tests(const std::vector<uint64_t>& v) {
     std::vector<unsigned char> out(v.size());
     if (v.empty()) return out;
     uint64_t* d_n; unsigned char* d_out;
@@ -139,6 +146,28 @@ static std::vector<unsigned char> device_bpsw(const std::vector<uint64_t>& v) {
     CK(cudaMemcpy(out.data(), d_out, v.size(), cudaMemcpyDeviceToHost));
     CK(cudaFree(d_n)); CK(cudaFree(d_out));
     return out;
+}
+
+// Runs device and host BPSW and Miller-Rabin over v and counts, per test, the
+// values whose verdict differs from expect_prime. Returns the total.
+static uint64_t check_set(const char* label, const std::vector<uint64_t>& v, bool expect_prime) {
+    std::vector<unsigned char> dev = device_tests(v);
+    uint64_t wrong[4] = {0, 0, 0, 0}, shown = 0;   // device BPSW, device MR, host BPSW, host MR
+    for (size_t i = 0; i < v.size(); i++) {
+        bool got[4] = {(dev[i] & 1) != 0, (dev[i] & 2) != 0,
+                       cpu_is_prime_bpsw(v[i]), cpu_miller_rabin(v[i])};
+        bool any = false;
+        for (int t = 0; t < 4; t++) if (got[t] != expect_prime) { wrong[t]++; any = true; }
+        if (any && shown++ < 5)
+            printf("  [FAIL] %llu should be %s: device BPSW %d, device MR %d, host BPSW %d, host MR %d\n",
+                   (unsigned long long)v[i], expect_prime ? "prime" : "composite",
+                   got[0], got[1], got[2], got[3]);
+    }
+    printf("  %s: %zu checked, %s: device BPSW %llu, device MR %llu, host BPSW %llu, host MR %llu (must be 0)\n",
+           label, v.size(), expect_prime ? "rejected" : "accepted",
+           (unsigned long long)wrong[0], (unsigned long long)wrong[1],
+           (unsigned long long)wrong[2], (unsigned long long)wrong[3]);
+    return wrong[0] + wrong[1] + wrong[2] + wrong[3];
 }
 
 int main() {
@@ -181,34 +210,17 @@ int main() {
         failures++;
     }
 
-    // Negative control: all must be rejected.
-    std::vector<unsigned char> dev = device_bpsw(spsp);
-    uint64_t dev_acc = 0, host_acc = 0, shown = 0;
-    for (size_t i = 0; i < spsp.size(); i++) {
-        bool h = cpu_is_prime_bpsw(spsp[i]);
-        if (dev[i]) dev_acc++;
-        if (h) host_acc++;
-        if ((dev[i] || h) && shown++ < 5)
-            printf("  [FAIL] BPSW accepts composite %llu (device %d, host %d)\n",
-                   (unsigned long long)spsp[i], dev[i], (int)h);
-    }
-    printf("  composites accepted: device %llu, host %llu (must be 0)\n",
-           (unsigned long long)dev_acc, (unsigned long long)host_acc);
-    failures += dev_acc + host_acc;
+    // Negative controls: all must be rejected.
+    failures += check_set("base-2 strong pseudoprimes", spsp, false);
+    const std::vector<uint64_t> slpsp = {5459, 5777, 10877, 16109, 18971,
+                                         22499, 24569, 25199, 40309, 58519};
+    failures += check_set("strong Lucas pseudoprimes (A*)", slpsp, false);
 
     // Positive control: primes must be accepted.
     std::vector<uint64_t> primes = {2, 3};
     for (uint64_t n = 5; n < (1ULL << 20); n += 2) if (!is_composite(comp, n)) primes.push_back(n);
     for (uint64_t n = LIMIT - 1000001; n < LIMIT; n += 2) if (!is_composite(comp, n)) primes.push_back(n);
-    std::vector<unsigned char> devp = device_bpsw(primes);
-    uint64_t dev_rej = 0, host_rej = 0;
-    for (size_t i = 0; i < primes.size(); i++) {
-        if (!devp[i]) dev_rej++;
-        if (!cpu_is_prime_bpsw(primes[i])) host_rej++;
-    }
-    printf("  primes checked: %zu, rejected: device %llu, host %llu (must be 0)\n",
-           primes.size(), (unsigned long long)dev_rej, (unsigned long long)host_rej);
-    failures += dev_rej + host_rej;
+    failures += check_set("primes", primes, true);
 
     printf("\nTOTAL FAILURES: %llu\n", (unsigned long long)failures);
     if (failures) { printf("FAIL\n"); return 1; }

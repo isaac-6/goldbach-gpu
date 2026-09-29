@@ -21,6 +21,14 @@
 #                                    p_min this printed the non-record
 #                                    79097318 1009 and missed 1093.
 #
+# Tie-breaking: a record is the SMALLEST n reaching a new maximum p_min, so
+# when two numbers in one segment share the segment's maximum the verifier must
+# report the first. `goldbach 1000 --record-check --p-small=17 --seg-size=64`
+# must print exactly the five lines in TIE_EXPECTED. Its first segment,
+# [4, 130], holds two numbers with p_min = 19, n = 98 and n = 128, both above
+# P_SMALL and so resolved by Phase 2; 98 is the record. The list was derived
+# by brute force: per segment of 64 even numbers, the largest p_min and the
+# smallest n attaining it, printed when it exceeds every earlier segment's.
 # Usage: test_record_check.sh <path-to-goldbach>
 # Exit 0 = all configurations pass.
 
@@ -80,6 +88,20 @@ check() {
         echo "  FAIL [$*]$why"; fails=$((fails+1))
     fi
 }
+
+TIE_EXPECTED="98 19
+220 23
+308 31
+556 47
+992 73"
+out=$("$GOLDBACH" 1000 --record-check --p-small=17 --seg-size=64 2>&1); rc=$?
+got=$(sed -n 's/^\[record\] n=\([0-9]*\) p_min=\([0-9]*\)$/\1 \2/p' <<<"$out")
+if [ "$rc" -eq 0 ] && [ "$got" = "$TIE_EXPECTED" ]; then
+    echo "  ok   [1000 --p-small=17 --seg-size=64] tie at p_min=19 reported as n=98"
+else
+    echo "  FAIL [1000 --p-small=17 --seg-size=64] exit $rc, records: $(tr '\n' ',' <<<"$got") expected: $(tr '\n' ',' <<<"$TIE_EXPECTED")"
+    fails=$((fails+1))
+fi
 
 check
 check --seg-size=1000000 --batch-size=7 --p-small=1100

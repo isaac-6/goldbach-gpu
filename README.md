@@ -222,12 +222,12 @@ implementation or published data rather than against itself:
 |---|---|
 | `test_gpu_sieve` | GPU segment sieve against an independently written CPU sieve, over fixed and randomised ranges including boundary cases. |
 | `test_phase1` | GPU verification against a CPU reference. Compares across prime-list prefixes, so the comparison resolves *which* prime succeeded rather than the saturated yes/no verdict. Walks ranges in segments with the verifier's own segment geometry, including a partial last segment and a switch between the two kernels, at batch sizes down to one prime per launch. |
-| `test_primality` | Baillie–PSW against the 12-base deterministic Miller–Rabin, with emphasis above 2<sup>63</sup>. |
-| `test_bpsw_spsp` | Every base-2 strong pseudoprime below 2<sup>32</sup> (2,314, generated independently) must be rejected by Baillie–PSW on device and host, and 126,897 primes accepted. |
+| `test_primality` | Baillie–PSW against the 12-base deterministic Miller–Rabin, device and host, with emphasis above 2<sup>63</sup>; plus inputs with known verdicts (confirmed with sympy): the smallest number that is a strong pseudoprime to every prime base up to 31, and primes near 2<sup>64</sup> whose parameter search needs up to 82 steps. |
+| `test_bpsw_spsp` | Every base-2 strong pseudoprime below 2<sup>32</sup> (2,314, generated independently) and the first ten strong Lucas pseudoprimes published by Baillie, Fiori and Wagstaff must be rejected by Baillie–PSW and by Miller–Rabin, each on device and host, and 126,897 primes accepted by all four. |
 | `test_bitset_race` | Repeated parallel bitset construction against a single-threaded reference, at both word-aligned and misaligned thread boundaries. |
 | `test_sieve`, `test_bitset` | The CPU segmented sieve and the prime bitset against known π(n). |
 | `test_records` | The CPU definition of p<sub>min</sub> against 48 published record values computed independently by Oliveira e Silva. |
-| `test_record_check` | `goldbach --record-check` to 10<sup>8</sup> at three parameter sets against a brute-force record list: the output must be a subsequence and include the maximum. |
+| `test_record_check` | `goldbach --record-check` to 10<sup>8</sup> at three parameter sets against a brute-force record list: the output must be a subsequence and include the maximum. A fourth run pins tie-breaking: two numbers share a segment's maximum p<sub>min</sub>, and the smaller must be reported. |
 | `test_count_primes` | `goldbach --count-primes` against known π(N), over many segments and from a non-default `--start`. |
 | `test_phase2_fallback` | With `--p-small=3`, exactly 421,501 numbers to 10<sup>6</sup> must reach the CPU fallback, and the run must still succeed. |
 | `test_cli` | Every invalid command line of `goldbach`, `big_check` and `single_check` exits 1 with its message; edge cases still run. |

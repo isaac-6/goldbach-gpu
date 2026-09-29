@@ -25,7 +25,11 @@ __global__ void compare_kernel(const uint64_t* n, int count,
     bpsw[i] = gpu_is_prime_bpsw(n[i])         ? 1 : 0;
 }
 
-static uint64_t run_batch(const std::vector<uint64_t>& vals, const char* label) {
+// Counts values on which the four tests (device and host, MR and BPSW) do not
+// all agree. With expect, each value must also match its known verdict
+// (1 = prime, 0 = composite), so a fault shared by both tests still shows.
+static uint64_t run_batch(const std::vector<uint64_t>& vals, const char* label,
+                          const std::vector<int>* expect = nullptr) {
     int count = (int)vals.size();
     uint64_t *d_n; unsigned char *d_mr, *d_bpsw;
     CK(cudaMalloc(&d_n, count * sizeof(uint64_t)));
@@ -47,7 +51,8 @@ static uint64_t run_batch(const std::vector<uint64_t>& vals, const char* label) 
         // overflowed above 2^63.
         bool host_bpsw = cpu_is_prime_bpsw(vals[i]);
         bool host_mr   = cpu_miller_rabin(vals[i]);
-        if (mr[i] != bpsw[i] || host_bpsw != host_mr || (mr[i] != 0) != host_mr) {
+        bool wrong = expect && (host_mr != ((*expect)[i] != 0));
+        if (mr[i] != bpsw[i] || host_bpsw != host_mr || (mr[i] != 0) != host_mr || wrong) {
             bad++;
             if (shown < 5) {
                 printf("    n=%llu  gpu_mr=%d gpu_bpsw=%d cpu_mr=%d cpu_bpsw=%d\n",
@@ -113,6 +118,25 @@ int main() {
             4294836225ULL, 18446744030759878681ULL       // 65535^2, 4294967291^2
         };
         total += run_batch(v, "long Selfridge search, and squares");
+    }
+
+    // Known verdicts, each confirmed independently with sympy 1.14.0
+    // (isprime, factorint, and jacobi_symbol for the try counts):
+    //   - 3825123056546413051 = 149491 * 747451 * 34233211 is a strong
+    //     pseudoprime to every prime base up to 31; base 37 is what makes the
+    //     12-base Miller-Rabin deterministic below 2^64, so this pins it.
+    //   - five primes above 2^63 whose Selfridge search needs 68 to 82 values
+    //     of D (the counts on the right), far past the 43-49 needed below 2^32,
+    //     so a search capped anywhere below 82 rejects at least one of them.
+    {
+        std::vector<uint64_t> v = {
+            3825123056546413051ULL,
+            15749200944221826181ULL, 9586010881482168169ULL,           // 82 80
+            9586402395203680489ULL,  9491614064492025181ULL,           // 73 73
+            9624417432061496821ULL                                     // 68
+        };
+        std::vector<int> expect = {0, 1, 1, 1, 1, 1};
+        total += run_batch(v, "known verdicts: psi_11 and long searches near 2^64", &expect);
     }
 
     printf("\nTOTAL DISAGREEMENTS: %llu\n", (unsigned long long)total);

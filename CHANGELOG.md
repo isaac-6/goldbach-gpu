@@ -71,9 +71,12 @@
 ### Added
 - `--count-primes` and `--count-file`.
 - Tests:
-  - `test_bpsw_spsp`: every base-2 strong pseudoprime below 2^32;
+  - `test_bpsw_spsp`: every base-2 strong pseudoprime below 2^32 and the
+    first ten published strong Lucas pseudoprimes, through BPSW and
+    Miller-Rabin on device and host;
   - `test_phase2_fallback`: an exact Phase 2 count;
-  - `test_record_check`: `--record-check` against brute-force records to 1e8;
+  - `test_record_check`: `--record-check` against brute-force records to 1e8,
+    and a tie between two numbers in one segment;
   - `test_cli`: command-line validation;
   - `test_count_primes`, which now also runs from a non-default `--start`;
   - `test_phase1`, which now covers multiple segments and batch sizes 1, 7
