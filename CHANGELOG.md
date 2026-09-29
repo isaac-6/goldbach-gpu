@@ -90,6 +90,8 @@
   place `goldbach` tests primality, and no published run reached it.
 
 ### Added
+- `--count-primes` with a START above the small-prime bound (about sqrt(N))
+  prints the window count, `primes in (START, N] = ...`, instead of refusing.
 - `--count-primes` and `--count-file`.
 - Tests:
   - `test_bpsw_spsp`: every base-2 strong pseudoprime below 2^32 and the

@@ -133,7 +133,7 @@ Verifies every even number from 4 to the given limit. Useful options:
 | `--p-small=N` | Prime search bound for the GPU phase, 3 to 4·10<sup>9</sup>. Default 10<sup>6</sup>. |
 | `--batch-size=N` | Primes uploaded per Phase 1 kernel launch, 1 to 2<sup>32</sup>. Default 10<sup>5</sup>. |
 | `--record-check` | Print each new maximum p<sub>min</sub> as it is found. Requires the default `--start`. |
-| `--count-primes` | Also print π(limit), counted from the segment sieve. |
+| `--count-primes` | Also print π(limit), counted from the segment sieve. With a `--start` above the small-prime bound (about √limit), print the count of primes in (start, limit] instead. |
 | `--count-file=F` | With `--count-primes`, write each segment's range and prime count to F. |
 | `--progress` | Live throughput and estimated completion. |
 | `--primetest=mr\|bpsw` | Primality test in the CPU fallback (Phase 2) for q above 10<sup>8</sup>. Default MR, the proved 12-base Miller–Rabin. |

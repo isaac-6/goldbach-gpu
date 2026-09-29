@@ -682,7 +682,9 @@ void print_usage(const char* prog) {
               << "  --record-check   Print each new maximum p_min as [record] n=... p_min=...\n"
               << "                   (requires the default --start=4; at most one per segment)\n"
               << "  --count-primes   Also count the primes up to LIMIT from the segment sieve;\n"
-              << "                   prints pi(LIMIT) = ...\n"
+              << "                   prints pi(LIMIT) = ..., or, when START exceeds the\n"
+              << "                   small-prime bound (about sqrt(LIMIT)), the window count\n"
+              << "                   primes in (START, LIMIT] = ...\n"
               << "  --count-file=F   With --count-primes, write one line per segment to F:\n"
               << "                   \"A B count\", count = number of primes in [A, B]\n"
               << "  --p-small=N      GPU prime search bound, 3 <= N <= 4,000,000,000\n"
@@ -956,16 +958,25 @@ int main(int argc, char** argv) {
     // START is even and >= 4, hence not prime, so the primes up to START are
     // those up to START - 1, which small_primes covers when START - 1 <=
     // small_high. At START = 4 that always holds (small_high >= 3).
+    //
+    // Window mode: above that bound the primes up to START are not tabulated,
+    // so the run reports the primes in (START, N] alone -- exactly what the
+    // segments count. An odd START given is rounded up to an even, hence
+    // composite, number, so (START given, N] holds the same primes.
     uint64_t primes_below_start = 0;
+    bool count_window = false;
     if (opt.countPrimes) {
         if (START - 1 > small_high) {
-            std::cerr << "[!] ERROR: --count-primes needs --start <= " << small_high + 1 << ".\n";
-            return 1;
+            count_window = true;
+            std::cout << "[count] START is above the small-prime bound " << small_high
+                      << ": counting the primes in (" << START_GIVEN << ", " << COUNT_HIGH
+                      << "] only\n";
+        } else {
+            primes_below_start = (uint64_t)(std::upper_bound(small_primes.begin(),
+                                            small_primes.end(), START) - small_primes.begin());
+            std::cout << "[count] counting primes; " << primes_below_start
+                      << " at or below START=" << START << " added on the host\n";
         }
-        primes_below_start = (uint64_t)(std::upper_bound(small_primes.begin(),
-                                        small_primes.end(), START) - small_primes.begin());
-        std::cout << "[count] counting primes; " << primes_below_start
-                  << " at or below START=" << START << " added on the host\n";
     }
 
     // Fail-Fast Validations. Placed here so small_primes.size() is the real
@@ -1121,8 +1132,12 @@ int main(int argc, char** argv) {
     std::cout << "Phase 2 fallbacks      : " << g_total_phase2_count.load() << "\n";
 
     if (opt.countPrimes) {
-        std::cout << "pi(" << COUNT_HIGH << ") = "
-                  << primes_below_start + g_prime_count_total.load() << "\n";
+        if (count_window)
+            std::cout << "primes in (" << START_GIVEN << ", " << COUNT_HIGH << "] = "
+                      << g_prime_count_total.load() << "\n";
+        else
+            std::cout << "pi(" << COUNT_HIGH << ") = "
+                      << primes_below_start + g_prime_count_total.load() << "\n";
         if (!opt.countFile.empty()) {
             std::sort(g_segment_counts.begin(), g_segment_counts.end(),
                       [](const SegmentCount& a, const SegmentCount& b) { return a.lo < b.lo; });
