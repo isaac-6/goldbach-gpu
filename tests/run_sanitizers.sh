@@ -10,6 +10,14 @@
 #                           one above 1e11, [1e11+1, 1e11+400001], where the
 #                           large-prime kernel has work. For racecheck when the
 #                           full test_gpu_sieve is too slow.
+#          goldbach_record  goldbach 200000 --record-check --p-small=3
+#                           --seg-size=1000: the RECORD=true Phase 1 kernels
+#                           (scalar and transposed), count_unverified_kernel and
+#                           Phase 2 on every segment
+#          goldbach_count   goldbach 3000001 --count-primes --seg-size=100002
+#                           --p-small=1000 --batch-size=7:
+#                           count_segment_primes_kernel and the RECORD=false
+#                           kernels over many launches per segment
 #
 # Not part of ctest: it needs the CUDA debugger interface, which is not
 # available everywhere. On WSL2 it must first be enabled from Windows by
@@ -30,13 +38,13 @@ BUILD="${1:?usage: $0 <build-dir> [out-dir]}"
 SRC_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 OUT="${2:-$BUILD/sanitizer-logs/$(date +%Y%m%d-%H%M%S)}"
 TIMEOUT="${SANITIZER_TIMEOUT:-4h}"
-TARGETS="${SANITIZER_TARGETS:-test_gpu_sieve test_phase1 sieve_driver}"
+TARGETS="${SANITIZER_TARGETS:-test_gpu_sieve test_phase1 sieve_driver goldbach_record goldbach_count}"
 SAN="${COMPUTE_SANITIZER:-compute-sanitizer}"
 
 command -v "$SAN" >/dev/null || { echo "ERROR: $SAN not found"; exit 2; }
 mkdir -p "$OUT" || exit 2
 
-for t in test_gpu_sieve test_phase1; do
+for t in test_gpu_sieve test_phase1 goldbach; do
     [ -x "$BUILD/bin/$t" ] || { echo "ERROR: $BUILD/bin/$t missing; build first"; exit 2; }
 done
 
@@ -97,10 +105,15 @@ if ! nvcc -std=c++17 -O3 -lineinfo "$ARCH_FLAG" -I"$SRC_ROOT/include" \
     echo "ERROR: could not build the reduced driver; see $OUT/sieve_driver.build.log"; exit 2
 fi
 
-target_path() {
+# Sets CMD to the command line for target $1; returns 1 for an unknown target.
+target_cmd() {
     case "$1" in
-        sieve_driver) echo "$OUT/sieve_driver" ;;
-        *)            echo "$BUILD/bin/$1" ;;
+        sieve_driver)    CMD=("$OUT/sieve_driver") ;;
+        goldbach_record) CMD=("$BUILD/bin/goldbach" 200000 --record-check --p-small=3 --seg-size=1000) ;;
+        goldbach_count)  CMD=("$BUILD/bin/goldbach" 3000001 --count-primes --seg-size=100002
+                              --p-small=1000 --batch-size=7) ;;
+        test_gpu_sieve|test_phase1) CMD=("$BUILD/bin/$1") ;;
+        *) return 1 ;;
     esac
 }
 
@@ -124,15 +137,23 @@ FINDINGS_RC=86
 SUMMARY="$OUT/summary.txt"
 {
     echo "compute-sanitizer: $("$SAN" --version | tail -1)"
-    echo "source: $(git -C "$SRC_ROOT" rev-parse --short HEAD 2>/dev/null)$(git -C "$SRC_ROOT" diff --quiet 2>/dev/null || echo ' +uncommitted changes')"
+    # Outside a git checkout (e.g. a `git archive` export) there is no commit
+    # to name, and `git diff` fails, which used to read as uncommitted changes.
+    if rev=$(git -C "$SRC_ROOT" rev-parse --short HEAD 2>/dev/null); then
+        git -C "$SRC_ROOT" diff --quiet HEAD 2>/dev/null && echo "source: $rev" \
+            || echo "source: $rev +uncommitted changes"
+    else
+        echo "source: $SRC_ROOT (not a git checkout)"
+    fi
     echo "arch: $ARCH_FLAG"
     echo
 } > "$SUMMARY"
 
 bad=0
 for target in $TARGETS; do
-    exe=$(target_path "$target")
-    [ -x "$exe" ] || { echo "unknown or missing target: $target" | tee -a "$SUMMARY"; bad=1; continue; }
+    if ! target_cmd "$target" || [ ! -x "${CMD[0]}" ]; then
+        echo "unknown or missing target: $target" | tee -a "$SUMMARY"; bad=1; continue
+    fi
     for tool in memcheck initcheck synccheck racecheck; do
         extra=()
         [ "$tool" = racecheck ] && extra=(--racecheck-report all)
@@ -140,7 +161,7 @@ for target in $TARGETS; do
         start=$(date +%s)
         timeout "$TIMEOUT" "$SAN" --tool "$tool" "${extra[@]}" --print-limit 0 \
             --error-exitcode "$FINDINGS_RC" --log-file "$log" \
-            "$exe" > "$OUT/${tool}__${target}.stdout" 2>&1
+            "${CMD[@]}" > "$OUT/${tool}__${target}.stdout" 2>&1
         rc=$?
         secs=$(( $(date +%s) - start ))
         # compute-sanitizer writes its own summary as the last lines of the log.

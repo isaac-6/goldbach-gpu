@@ -82,6 +82,8 @@ reject "$G" "must be a non-negative decimal integer" 1000000 --start=
 reject "$G" "must be a non-negative decimal integer" 1000000 --batch-size=1e5
 reject "$G" "must be a non-negative decimal integer" 1e6
 reject "$G" "START must be <= LIMIT"                1000000 --start=1000002
+reject "$G" "contains no even number to check"     1000001 --start=1000001
+reject "$G" "contains no even number to check"     5 --start=5
 reject "$G" "unknown --primetest value"             1000000 --primetest=XX
 reject "$G" "LIMIT is required"                     --seg-size=1000000
 reject "$G" "--count-file requires --count-primes"  1000000 --count-file=x.txt
@@ -94,6 +96,9 @@ accept "All even numbers from 1000000 up to 1000000 satisfy" 1000000 --start=100
 accept "All even numbers from 1000000 up to 1000000 satisfy" 1000000 --start=999999
 accept "All even numbers from 4 up to 2000000 satisfy"       2000000 --record-check --start=3
 accept "satisfy Goldbach"                                    18446744065119617024 --start=18446744065119616000 --seg-size=64
+# The batch buffer is sized by the primes actually used, not by --batch-size:
+# 2^32 used to ask for 32 GiB of device memory for 78,498 primes.
+accept "All even numbers from 4 up to 1000000 satisfy"       1000000 --batch-size=4294967296
 
 echo "[big_check]"
 reject "$BIG_CHECK" "--p-max must be <="  "10^30" --p-max=18446744073709551615
@@ -104,6 +109,15 @@ echo "[single_check]"
 reject "$SINGLE_CHECK" "n must be an even integer" 1000000000001
 reject "$SINGLE_CHECK" "Number is too large"       100000000000000000000
 reject "$SINGLE_CHECK" "n must be >= 4"            2
+# Strict parsing: std::stoull ran "-2" as 2^64 - 2 and "12abc" as 12.
+S1="$SINGLE_CHECK"
+reject "$S1" "must be a non-negative decimal integer" -2
+reject "$S1" "must be a non-negative decimal integer" 12abc
+reject "$S1" "must be a non-negative decimal integer" +12
+reject "$S1" "must be a non-negative decimal integer" " 12"
+reject "$S1" "must be a non-negative decimal integer" 0x10
+reject "$S1" "must be a non-negative decimal integer" ""
+reject "$S1" "expected one argument"                  100 200
 
 echo
 if [ "$fails" -eq 0 ]; then echo "test_cli: all $n cases PASS"; exit 0; fi

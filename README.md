@@ -346,6 +346,7 @@ include/sieve_kernel.cuh  Segment sieve (tiled and large-prime kernels)
 include/phase1_kernel.cuh Verification kernels (transposed and scalar)
 include/primality.cuh     Miller-Rabin and Baillie-PSW, device and host
 include/segment_geometry.hpp  Segment bounds and sieved range, shared with test_phase1
+include/parse_u64.hpp     Strict decimal parsing, shared by goldbach and single_check
 src/test_*.c*             The test binaries described above
 tests/test_*.sh           The shell-driven tests described above
 tests/run_sanitizers.sh   compute-sanitizer runner (not part of ctest)

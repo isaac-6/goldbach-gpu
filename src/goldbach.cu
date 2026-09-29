@@ -59,6 +59,7 @@
 #include "phase1_kernel.cuh"
 #include "primality.cuh"
 #include "segment_geometry.hpp"
+#include "parse_u64.hpp"
 
 using namespace goldbach;
 
@@ -715,22 +716,6 @@ static const uint64_t MIN_P_SMALL    = 3;
 static const uint64_t MAX_P_SMALL    = 4'000'000'000ULL;
 static const uint64_t MAX_BATCH_SIZE = 4294967296ULL;             // 2^32
 
-// Strict decimal parse: digits only -- no sign, no whitespace, no suffix --
-// and no silent wrap. std::stoull accepted "-1" as 2^64 - 1.
-static uint64_t parse_u64(const std::string& text, const std::string& what) {
-    if (text.empty() || text.find_first_not_of("0123456789") != std::string::npos)
-        throw std::invalid_argument(what + " must be a non-negative decimal integer, got '"
-                                    + text + "'");
-    uint64_t v = 0;
-    for (char c : text) {
-        uint64_t d = (uint64_t)(c - '0');
-        if (v > (UINT64_MAX - d) / 10)
-            throw std::invalid_argument(what + " is out of range: '" + text + "'");
-        v = v * 10 + d;
-    }
-    return v;
-}
-
 int main(int argc, char** argv) {
     if (argc < 2) { print_usage(argv[0]); return 0; }
 
@@ -826,14 +811,23 @@ int main(int argc, char** argv) {
     }
     if (P_SMALL > LIMIT) P_SMALL = LIMIT;   // LIMIT >= 4, so P_SMALL stays >= 3
 
-    // START is compared before it is rounded: LIMIT <= MAX_LIMIT is even, so
-    // an odd START <= LIMIT rounds up to at most LIMIT and cannot wrap.
-    if (START > LIMIT) {
+    // START is compared with the LIMIT as given (COUNT_HIGH), before either is
+    // rounded; START <= COUNT_HIGH <= MAX_LIMIT, so rounding it up cannot wrap.
+    if (START > COUNT_HIGH) {
         std::cerr << "Error: START must be <= LIMIT.\n";
         return 1;
     }
+    const uint64_t START_GIVEN = START;
     if (START < 4) START = 4;
     if (START % 2 != 0) START++; // Force it to be even
+    // Only an odd START equal to an odd LIMIT gets here: [START, LIMIT] holds
+    // no even number. Refused rather than reported as verified, so that
+    // success is never printed for a run that checked nothing.
+    if (START > LIMIT) {
+        std::cerr << "Error: [" << START_GIVEN << ", " << COUNT_HIGH
+                  << "] contains no even number to check.\n";
+        return 1;
+    }
 
     // A record is an n whose p_min exceeds that of every smaller even number
     // from 4. Starting elsewhere would print maxima relative to START, which
@@ -895,7 +889,8 @@ int main(int argc, char** argv) {
     if (!seg_size_explicit) {
         uint64_t pi_bound = (small_high < 17) ? 8
                           : (uint64_t)(1.3 * (double)small_high / std::log((double)small_high));
-        SEG_SIZE = derive_seg_size(free_bytes0, P_SMALL, opt.batchSize, small_bytes, pi_bound);
+        SEG_SIZE = derive_seg_size(free_bytes0, P_SMALL, std::min(opt.batchSize, pi_bound),
+                                   small_bytes, pi_bound);
         std::cout << "[auto] --seg-size not given; chose " << SEG_SIZE
                   << " from " << free_bytes0 / (1024*1024) << " MB free VRAM\n";
     }
@@ -951,10 +946,13 @@ int main(int argc, char** argv) {
 
     // --count-primes: segments count only q in [START + 1, COUNT_HIGH], so the
     // primes up to START (2 and 3 at the default START = 4) are added here.
+    // START is even and >= 4, hence not prime, so the primes up to START are
+    // those up to START - 1, which small_primes covers when START - 1 <=
+    // small_high. At START = 4 that always holds (small_high >= 3).
     uint64_t primes_below_start = 0;
     if (opt.countPrimes) {
-        if (START > small_high) {
-            std::cerr << "[!] ERROR: --count-primes needs --start <= " << small_high << ".\n";
+        if (START - 1 > small_high) {
+            std::cerr << "[!] ERROR: --count-primes needs --start <= " << small_high + 1 << ".\n";
             return 1;
         }
         primes_below_start = (uint64_t)(std::upper_bound(small_primes.begin(),
@@ -966,7 +964,11 @@ int main(int argc, char** argv) {
     // Fail-Fast Validations. Placed here so small_primes.size() is the real
     // count rather than an estimate, but still ahead of the ~200 ms Phase 2
     // prime table below.
-    validate_hardware_and_limits(use_gpus, SEG_SIZE, P_SMALL, opt.batchSize,
+    // The batch buffer needs to hold at most every prime Phase 1 uses. A
+    // --batch-size above that count uploads all of them in one launch, exactly
+    // as a batch size equal to it does, so it must not size the buffer.
+    const uint64_t P_BATCH = std::min<uint64_t>(opt.batchSize, gpu_primes.size());
+    validate_hardware_and_limits(use_gpus, SEG_SIZE, P_SMALL, P_BATCH,
                                  small_bytes, small_primes.size());
 
     std::cout << "Pre-generating CPU primes up to " << PHASE2_SIEVE_LIMIT << "...\n";
@@ -1073,7 +1075,7 @@ int main(int argc, char** argv) {
     std::vector<std::thread> workers;
     for (int g = 0; g < use_gpus; ++g) {
         workers.emplace_back(
-            run_gpu_worker, g, LIMIT, SEG_SIZE, P_SMALL, opt.batchSize,
+            run_gpu_worker, g, LIMIT, SEG_SIZE, P_SMALL, P_BATCH,
             small_high, small_bytes, std::cref(small_bitset),
             std::cref(small_primes), std::cref(gpu_primes), std::cref(cpu_primes),
             opt.primeTest, opt.recordCheck, opt.countPrimes, COUNT_HIGH

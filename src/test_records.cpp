@@ -1,8 +1,9 @@
 // test_records.cpp
-// Validates the project's definition of p_min -- the CPU computation below,
-// which the other record tests share as their reference -- against an
-// EXTERNAL, independently computed source. It does not run the GPU pipeline;
-// test_record_check does, comparing goldbach --record-check against records.
+// Validates the project's definition of p_min -- the CPU computation below --
+// against an EXTERNAL, independently computed source. It does not run the GPU
+// pipeline, and the other record tests do not use this computation:
+// test_record_check compares goldbach --record-check with its own brute-force
+// record list, and test_big_check reads the published table below.
 //
 // Several defects found while developing this verifier failed in the direction
 // of false success, and "no counterexample found" is the same output whether
@@ -153,20 +154,27 @@ int main(int argc, char** argv) {
         }
 
         // No m below the record may beat the PREVIOUS record -- otherwise this
-        // n is not where p_min first reaches this height.
-        uint64_t worst_m = 0, worst_p = 0;
+        // n is not where p_min first reaches this height. An m with no p up to
+        // P_LIMIT at all (p_min_of = 0) beats every record and is the worst
+        // case; it used to be skipped, because only pm > worst_p was kept.
+        uint64_t worst_m = 0, worst_p = 0, worst_rank = 0;
         for (uint64_t m = lo; m < n; m += 2) {
             uint64_t pm = p_min_of(m);
-            if (pm == 0 || pm > prev) {
-                if (pm > worst_p) { worst_p = pm; worst_m = m; }
-            }
+            uint64_t rank = pm ? pm : UINT64_MAX;   // no p found ranks highest
+            if (rank > prev && rank > worst_rank) { worst_rank = rank; worst_p = pm; worst_m = m; }
         }
-        if (worst_p) {
-            printf("  [FAIL] n=%llu (p_min=%llu): m=%llu below it has p_min=%llu"
-                   " > previous record %llu\n",
-                   (unsigned long long)n, (unsigned long long)expect,
-                   (unsigned long long)worst_m, (unsigned long long)worst_p,
-                   (unsigned long long)prev);
+        if (worst_rank) {
+            if (worst_p)
+                printf("  [FAIL] n=%llu (p_min=%llu): m=%llu below it has p_min=%llu"
+                       " > previous record %llu\n",
+                       (unsigned long long)n, (unsigned long long)expect,
+                       (unsigned long long)worst_m, (unsigned long long)worst_p,
+                       (unsigned long long)prev);
+            else
+                printf("  [FAIL] n=%llu (p_min=%llu): m=%llu below it has no p <= %llu"
+                       " with m - p prime\n",
+                       (unsigned long long)n, (unsigned long long)expect,
+                       (unsigned long long)worst_m, (unsigned long long)P_LIMIT);
             failures++;
         }
 

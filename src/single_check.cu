@@ -10,6 +10,7 @@
 #include <iostream>
 #include <chrono>
 #include <cmath>
+#include "parse_u64.hpp"
 
 // Defined in segmented_sieve.cpp
 std::vector<char> segmented_sieve(uint64_t low, uint64_t high);
@@ -293,16 +294,21 @@ int main(int argc, char** argv) {
         return 0;
     }
 
-    // 2. Safe Parsing to uint64_t
+    // 2. Strict parsing to uint64_t (parse_u64.hpp): digits only, so a sign,
+    // a suffix or a second argument is an error, never a different n.
+    if (argc > 2) {
+        std::cerr << "Error: expected one argument <N>, got " << (argc - 1) << ".\n";
+        return 1;
+    }
     uint64_t n;
     try {
-        n = std::stoull(argv[1]);
-    } catch (const std::out_of_range& e) {
+        n = parse_u64(argv[1], "N");
+    } catch (const std::out_of_range&) {
         std::cerr << "Error: Number is too large for 64-bit unsigned integer.\n";
         std::cerr << "Use 'big_check' for numbers > 1.84 x 10^19.\n";
         return 1;
     } catch (const std::exception& e) {
-        std::cerr << "Error: Invalid numeric argument.\n";
+        std::cerr << "Error: " << e.what() << "\n";
         return 1;
     }
 

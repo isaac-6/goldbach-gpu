@@ -63,12 +63,19 @@
   - negative or malformed numbers, which used to wrap or abort on an uncaught
     exception.
 
-  N = 4 and START = N are now accepted.
+  N = 4 and START = N are now accepted. An odd START equal to an odd N is
+  refused with "[START, N] contains no even number to check", not with "START
+  must be <= LIMIT"; a run that checks nothing never reports success.
+  `--batch-size` no longer sizes the device buffer beyond the primes Phase 1
+  uses, so every value up to 2^32 runs (2^32 used to ask for 32 GiB).
+  `--count-primes` works for every N with `--p-small=3` (N < 9 was refused).
 - **`big_check`.** `--p-max` is capped at 4e9. 2^64 - 1 used to crash, and an
   allocation failure now exits 1. q above 2^64 is reported as a probable
   prime, never as prime.
 - **`single_check`.** Its kernel launch is now checked, and a counterexample
-  now exits 2 instead of 0.
+  now exits 2 instead of 0. N is parsed strictly, as in `goldbach`: `-2` used
+  to run as 2^64 - 2 and `12abc` as 12; both, and a second argument, now exit
+  1.
 - Scalar Phase 1 reads `d_verified` with a relaxed atomic load, and the tiled
   sieve clears bytes with relaxed block-scope atomic stores, removing two formal
   data races. `TILE_ODDS` is checked at compile time, and the `--progress`
@@ -98,7 +105,8 @@
   - `test_phase1`, which now covers multiple segments and batch sizes 1, 7
     and 1000;
   - `test_sieve` and `test_bitset`, now registered with CTest.
-- `tests/run_sanitizers.sh` (not part of ctest).
+- `tests/run_sanitizers.sh` (not part of ctest), covering `goldbach` itself
+  (`--record-check`, `--count-primes`) as well as the kernel tests.
 
 ### Removed
 - `tests/validation.sh` and `tests/validation_gpu.sh`, which checked outputs

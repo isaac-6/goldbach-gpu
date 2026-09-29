@@ -2,7 +2,7 @@
 # test_count_primes.sh
 # Functional test for goldbach --count-primes.
 #
-# Five cases:
+# Six cases:
 #   1 1e9          pi(10^9)        = 50,847,534   (OEIS A006880)
 #   2 123456789    pi(123,456,789) = 7,027,260    (primesieve 12.12)
 #   3 segments     123,456,789 again with --seg-size=1000000, so the count is
@@ -13,6 +13,8 @@
 #                  and the segments count only above it
 #   5 --start      pi(1,000,000,007) = 50,847,535 (primesieve 12.16) from
 #                  --start=65536 over 167 segments of 3,000,002
+#   6 tiny N       pi(N) for N = 4..12 with --p-small=3, where the prime
+#                  tables end at 3, below START = 4 (this used to be refused)
 #
 # At the default segment size case 2 is a single segment, so only case 3
 # exercises the segment-boundary arithmetic (each segment counting its own odd
@@ -51,13 +53,13 @@ check_pi() {
     if [ "$got" = "$want" ]; then ok "pi($n) = $got $*"; else bad "pi($n) = '$got', expected $want $*"; fi
 }
 
-echo "[1/5] pi(10^9)"
+echo "[1/6] pi(10^9)"
 check_pi 1000000000 50847534
 
-echo "[2/5] pi(123456789)"
+echo "[2/6] pi(123456789)"
 check_pi 123456789 7027260
 
-echo "[3/5] pi(123456789) from 62 segments, and the --count-file"
+echo "[3/6] pi(123456789) from 62 segments, and the --count-file"
 check_pi 123456789 7027260 --seg-size=1000000 --count-file="$TMP/counts.txt"
 if [ -f "$TMP/counts.txt" ]; then
     # Each line "A B count": A = 5 on the first line, then previous B + 2 (the
@@ -75,11 +77,18 @@ else
     bad "count file was not written"
 fi
 
-echo "[4/5] pi(123456789) from --start=1001"
+echo "[4/6] pi(123456789) from --start=1001"
 check_pi 123456789 7027260 --seg-size=1000000 --start=1001 --batch-size=7
 
-echo "[5/5] pi(1000000007) from --start=65536"
+echo "[5/6] pi(1000000007) from --start=65536"
 check_pi 1000000007 50847535 --seg-size=3000002 --start=65536
+
+echo "[6/6] pi(N) for N = 4..12 with --p-small=3"
+set -- 2 3 3 4 4 4 4 5 5          # pi(4) .. pi(12)
+for n in 4 5 6 7 8 9 10 11 12; do
+    check_pi "$n" "$1" --p-small=3
+    shift
+done
 
 if [ "$fails" -eq 0 ]; then echo "PASS"; exit 0; fi
 echo "FAIL ($fails)"; exit 1
