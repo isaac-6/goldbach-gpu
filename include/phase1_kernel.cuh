@@ -7,14 +7,6 @@
 #include <cstdint>
 #include <cuda/atomic>
 
-// Set to 1 by is_prime_q if it is ever asked about a q that neither bitset
-// covers. That cannot happen (see is_prime_q), so any nonzero value means the
-// segment geometry and the prime list disagree. The host reads it after every
-// segment's Phase 1 launches and treats a nonzero value as a system error:
-// the run exits 1 and never reports success. One copy per device; it is never
-// cleared, so it also reports a q out of range in any earlier segment.
-__device__ unsigned int g_phase1_q_range_error = 0;
-
 // -------------------------------------------------------
 // GPU Kernel Device Functions
 // -------------------------------------------------------
@@ -33,11 +25,17 @@ __device__ unsigned int g_phase1_q_range_error = 0;
 // P_SMALL here is the value segment_geometry() used, which bounds every prime
 // in the batch. So no q ever needs a probabilistic test in Phase 1. The
 // Baillie-PSW / Miller-Rabin fallback that used to follow was unreachable; a q
-// outside both ranges now raises g_phase1_q_range_error instead, and returns
+// outside both ranges now sets *d_q_range_error to 1 instead, and returns
 // false so that it can never verify a number.
+//
+// d_q_range_error: a device word the caller zeroes before the segment's
+// Phase 1 launches and reads after them. Any nonzero value means the segment
+// geometry and the prime list disagree; the verifier treats it as a system
+// error (exit 1, never success).
 __device__ bool is_prime_q(
     uint64_t q, const uint64_t* __restrict__ d_small, uint64_t small_high,
-    const uint64_t* __restrict__ d_seg_bits, uint64_t q_low, uint64_t q_high)
+    const uint64_t* __restrict__ d_seg_bits, uint64_t q_low, uint64_t q_high,
+    unsigned long long* d_q_range_error)
 {
     if (q < 2)  return false;
     if (q == 2) return true;
@@ -53,7 +51,7 @@ __device__ bool is_prime_q(
         return (d_seg_bits[bit_pos / 64] >> (bit_pos % 64)) & 1ULL;
     }
 
-    atomicExch(&g_phase1_q_range_error, 1u);   // unreachable, see INVARIANT
+    atomicExch(d_q_range_error, 1ULL);   // unreachable, see INVARIANT
     return false;
 }
 
@@ -109,7 +107,8 @@ __global__ void goldbach_phase1_kernel(
     const uint64_t* __restrict__ d_seg_bits, uint64_t q_low, uint64_t q_high,
     uint64_t seg_even_start, uint64_t seg_even_count,
     const uint64_t* __restrict__ p_batch, uint64_t p_batch_size,
-    uint64_t* d_verified, unsigned long long* d_record)
+    uint64_t* d_verified, unsigned long long* d_record,
+    unsigned long long* d_q_range_error)
 {
     uint64_t tid = (uint64_t)blockIdx.x * blockDim.x + threadIdx.x;
     if (tid >= seg_even_count) return;
@@ -132,7 +131,7 @@ __global__ void goldbach_phase1_kernel(
         if (p > n / 2) break; 
         uint64_t q = n - p;
 
-        if (is_prime_q(q, d_small, small_high, d_seg_bits, q_low, q_high)) {
+        if (is_prime_q(q, d_small, small_high, d_seg_bits, q_low, q_high, d_q_range_error)) {
             atomicOr(reinterpret_cast<unsigned long long*>(&d_verified[tid >> 6]),
                      1ULL << (tid & 63));
             // RECORD-CHECK DEPENDENCY: p_batch is ascending and this returns on
@@ -270,8 +269,11 @@ static inline void launch_goldbach_phase1(
     const uint64_t* d_p_batch, uint64_t p_batch_size,
     uint64_t* d_verified, uint64_t p_small,
     int threads_per_block, cudaStream_t stream,
+    unsigned long long* d_q_range_error,
     unsigned long long* d_record = nullptr)
 {
+    // d_q_range_error: see is_prime_q. Only the scalar kernel can set it; the
+    // transposed kernel reads q from the segment bitset by construction.
     // d_record == nullptr selects the RECORD=false instantiation, so the
     // tracking code is not merely branched around -- it is not compiled in.
     if (seg_even_start > 2 * p_small + 128) {
@@ -292,11 +294,11 @@ static inline void launch_goldbach_phase1(
             goldbach_phase1_kernel<true><<<blocks, threads_per_block, 0, stream>>>(
                 d_small, small_high, d_seg_bits, q_low, q_high,
                 seg_even_start, seg_even_count, d_p_batch, p_batch_size,
-                d_verified, d_record);
+                d_verified, d_record, d_q_range_error);
         else
             goldbach_phase1_kernel<false><<<blocks, threads_per_block, 0, stream>>>(
                 d_small, small_high, d_seg_bits, q_low, q_high,
                 seg_even_start, seg_even_count, d_p_batch, p_batch_size,
-                d_verified, nullptr);
+                d_verified, nullptr, d_q_range_error);
     }
 }

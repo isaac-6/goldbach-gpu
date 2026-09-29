@@ -181,6 +181,13 @@ struct Options {
 // 1024); the launch uses 256.
 static const int COUNT_VERIFIED   = 0;
 static const int COUNT_UNVERIFIED = 1;
+// Third slot of the same buffer, written by the scalar Phase 1 kernel, not by
+// this one: nonzero if Phase 1 met a q outside both prime bitsets (see
+// is_prime_q). It rides along with the two counts so that reading it back
+// costs no extra copy per segment; a separate copy cost ~34 us per segment,
+// 1.1% at 1e13.
+static const int COUNT_Q_RANGE_ERROR = 2;
+static const int COUNT_SLOTS         = 3;
 
 __global__ void count_unverified_kernel(
     const uint64_t* __restrict__ d_verified,
@@ -333,7 +340,7 @@ void run_gpu_worker(
         uint64_t* d_seg_bits = nullptr;
         uint64_t* d_verified = nullptr;   // bitset: 1 bit per even number
         uint64_t* d_p_batch  = nullptr;
-        unsigned long long* d_counts = nullptr;   // [COUNT_VERIFIED], [COUNT_UNVERIFIED]
+        unsigned long long* d_counts = nullptr;   // [COUNT_VERIFIED], [COUNT_UNVERIFIED], [COUNT_Q_RANGE_ERROR]
         unsigned long long* d_record = nullptr;
         unsigned long long* d_prime_count = nullptr;
 
@@ -343,7 +350,7 @@ void run_gpu_worker(
         uint64_t max_verified_words = (SEG_SIZE + 63) / 64;
         CUDA_CHECK(cudaMalloc(&d_verified, max_verified_words * sizeof(uint64_t)));
         CUDA_CHECK(cudaMalloc(&d_p_batch, P_BATCH * sizeof(uint64_t)));
-        CUDA_CHECK(cudaMalloc(&d_counts, 2 * sizeof(unsigned long long)));
+        CUDA_CHECK(cudaMalloc(&d_counts, COUNT_SLOTS * sizeof(unsigned long long)));
         if (recordCheck) CUDA_CHECK(cudaMalloc(&d_record, sizeof(unsigned long long)));
         if (countPrimes) CUDA_CHECK(cudaMalloc(&d_prime_count, sizeof(unsigned long long)));
 
@@ -399,6 +406,9 @@ void run_gpu_worker(
                                        verified_words * sizeof(uint64_t), stream));
             if (recordCheck)
                 CUDA_CHECK(cudaMemsetAsync(d_record, 0, sizeof(unsigned long long), stream));
+            // All three slots are cleared before Phase 1, not before the count:
+            // the range-error slot is written during Phase 1.
+            CUDA_CHECK(cudaMemsetAsync(d_counts, 0, COUNT_SLOTS * sizeof(unsigned long long), stream));
             for (uint64_t bi = 0; bi < gpu_primes.size(); bi += P_BATCH) {
                 uint64_t bsize = std::min(P_BATCH, (uint64_t)gpu_primes.size() - bi);
                 CUDA_CHECK(cudaMemcpyAsync(d_p_batch, gpu_primes.data() + bi, bsize * sizeof(uint64_t), cudaMemcpyHostToDevice, stream));
@@ -406,20 +416,22 @@ void run_gpu_worker(
                 launch_goldbach_phase1(
                     d_small, small_high, d_seg_bits, q_low, q_high,
                     seg_start, seg_even_count, d_p_batch, bsize, d_verified,
-                    P_SMALL, THREADS_PER_BLOCK, stream, d_record);
+                    P_SMALL, THREADS_PER_BLOCK, stream,
+                    &d_counts[COUNT_Q_RANGE_ERROR], d_record);
                 CUDA_CHECK(cudaGetLastError());
             }
 
             // C. Count verified and unverified numbers
-            unsigned long long counts[2] = {0, 0};
-            CUDA_CHECK(cudaMemsetAsync(d_counts, 0, 2 * sizeof(unsigned long long), stream));
+            unsigned long long counts[COUNT_SLOTS] = {0, 0, 0};
 
             uint32_t count_blocks = (uint32_t)((verified_words + 255) / 256);
             count_unverified_kernel<<<count_blocks, 256, 0, stream>>>(d_verified, seg_even_count, d_counts);
             // A failed launch is reported only here: the copy and the sync
             // below would both return success and leave the counts at 0.
             CUDA_CHECK(cudaGetLastError());
-            CUDA_CHECK(cudaMemcpyAsync(counts, d_counts, 2 * sizeof(unsigned long long), cudaMemcpyDeviceToHost, stream));
+            // One copy brings back both counts and Phase 1's range-error flag.
+            CUDA_CHECK(cudaMemcpyAsync(counts, d_counts, COUNT_SLOTS * sizeof(unsigned long long),
+                                       cudaMemcpyDeviceToHost, stream));
 
             // Rides along with the unverified-count readback: no extra sync.
             unsigned long long record_enc = 0;
@@ -430,20 +442,15 @@ void run_gpu_worker(
             if (count_this)
                 CUDA_CHECK(cudaMemcpyAsync(&seg_prime_count, d_prime_count, sizeof(unsigned long long),
                                            cudaMemcpyDeviceToHost, stream));
-            // Phase 1's out-of-range flag, set if the scalar kernel met a q
-            // that neither bitset covers (see is_prime_q). Stream-ordered after
-            // every Phase 1 launch of this segment; sticky, so it covers them all.
-            unsigned int q_range_error = 0;
-            CUDA_CHECK(cudaMemcpyFromSymbolAsync(&q_range_error, g_phase1_q_range_error,
-                                                 sizeof(unsigned int), 0,
-                                                 cudaMemcpyDeviceToHost, stream));
             CUDA_CHECK(cudaStreamSynchronize(stream));
 
             // Before anything from this segment is used: a q outside both
             // bitsets means Phase 1 answered a question it could not answer.
-            if (q_range_error) {
+            // The slot was cleared before this segment's Phase 1 launches and
+            // copied after all of them, so it covers every one.
+            if (counts[COUNT_Q_RANGE_ERROR]) {
                 std::ostringstream err_msg;
-                err_msg << "Phase 1 met a q outside both prime bitsets by seg_start=" << seg_start
+                err_msg << "Phase 1 met a q outside both prime bitsets at seg_start=" << seg_start
                         << " (q_low=" << q_low << ", q_high=" << q_high
                         << ", small_high=" << small_high << ")";
                 throw std::runtime_error(err_msg.str());

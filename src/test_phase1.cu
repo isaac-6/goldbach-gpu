@@ -143,6 +143,7 @@ static uint64_t check_range(uint64_t n_low, uint64_t n_high, uint64_t p_small,
     uint64_t *d_small = nullptr, *d_small_primes = nullptr;
     uint64_t *d_seg_bits = nullptr, *d_p_batch = nullptr;
     uint64_t *d_verified = nullptr;   // bitset: 1 bit per even number
+    unsigned long long *d_q_range_error = nullptr;   // see is_prime_q
 
     CK(cudaMalloc(&d_small, small_bytes));
     CK(cudaMalloc(&d_small_primes, small_primes.size() * sizeof(uint64_t)));
@@ -150,6 +151,7 @@ static uint64_t check_range(uint64_t n_low, uint64_t n_high, uint64_t p_small,
     CK(cudaMalloc(&d_seg_bits, (seg_words + 1) * sizeof(uint64_t)));
     CK(cudaMalloc(&d_p_batch, p_batch_alloc * sizeof(uint64_t)));
     CK(cudaMalloc(&d_verified, max_ver_words * sizeof(uint64_t)));
+    CK(cudaMalloc(&d_q_range_error, sizeof(unsigned long long)));
 
     CK(cudaMemcpy(d_small, small_bitset.data(), small_bytes, cudaMemcpyHostToDevice));
     CK(cudaMemcpy(d_small_primes, small_primes.data(),
@@ -184,6 +186,7 @@ static uint64_t check_range(uint64_t n_low, uint64_t n_high, uint64_t p_small,
             if (K > gpu_primes.size()) continue;
 
             CK(cudaMemset(d_verified, 0, ver_words * sizeof(uint64_t)));
+            CK(cudaMemset(d_q_range_error, 0, sizeof(unsigned long long)));
             uint64_t queued = 0;   // launches since the last synchronize
             for (uint64_t bi = 0; bi < K; bi += batch) {
                 uint64_t bsize = std::min(batch, K - bi);
@@ -193,7 +196,7 @@ static uint64_t check_range(uint64_t n_low, uint64_t n_high, uint64_t p_small,
                 launch_goldbach_phase1(
                     d_small, small_high, d_seg_bits, geo.q_low, geo.q_high,
                     seg_start, geo.seg_even_count, d_p_batch, bsize, d_verified,
-                    p_small, THREADS_PER_BLOCK, 0);
+                    p_small, THREADS_PER_BLOCK, 0, d_q_range_error);
                 CK(cudaGetLastError());
                 if (++queued == SYNC_EVERY_LAUNCHES) {   // see SYNC_EVERY_LAUNCHES
                     CK(cudaStreamSynchronize(0));
@@ -201,15 +204,13 @@ static uint64_t check_range(uint64_t n_low, uint64_t n_high, uint64_t p_small,
                 }
             }
             CK(cudaDeviceSynchronize());
-            unsigned int q_range_error = 0;
-            CK(cudaMemcpyFromSymbol(&q_range_error, g_phase1_q_range_error, sizeof(unsigned int)));
+            unsigned long long q_range_error = 0;
+            CK(cudaMemcpy(&q_range_error, d_q_range_error, sizeof(q_range_error), cudaMemcpyDeviceToHost));
             if (q_range_error) {
                 // A q outside both bitsets: the segment geometry is wrong.
                 printf("    q outside both bitsets (segment at %llu, first %llu primes)\n",
                        (unsigned long long)seg_start, (unsigned long long)K);
                 mismatches++;
-                unsigned int zero = 0;
-                CK(cudaMemcpyToSymbol(g_phase1_q_range_error, &zero, sizeof(unsigned int)));
             }
             CK(cudaMemcpy(gpu_verified.data(), d_verified,
                           ver_words * sizeof(uint64_t), cudaMemcpyDeviceToHost));
@@ -242,6 +243,7 @@ static uint64_t check_range(uint64_t n_low, uint64_t n_high, uint64_t p_small,
     CK(cudaFree(d_seg_bits));
     CK(cudaFree(d_p_batch));
     CK(cudaFree(d_verified));
+    CK(cudaFree(d_q_range_error));
     return mismatches;
 }
 
@@ -344,30 +346,32 @@ int main() {
     // -------------------------------------------------------
     // The scalar kernel called directly with a segment range that starts above
     // every q it will meet (n in [1000, 1018], p = 3, q_low = 1000001): no
-    // bitset covers q, so is_prime_q must raise g_phase1_q_range_error and
+    // bitset covers q, so is_prime_q must set the range-error word and
     // must not verify anything. The verifier's own geometry never does this.
     {
         printf("  [negative control: q outside both bitsets]\n");
         uint64_t *d_small = nullptr, *d_seg = nullptr, *d_p = nullptr, *d_ver = nullptr;
+        unsigned long long* d_err = nullptr;
         CK(cudaMalloc(&d_small, 64)); CK(cudaMalloc(&d_seg, 64));
         CK(cudaMalloc(&d_p, 8));      CK(cudaMalloc(&d_ver, 8));
+        CK(cudaMalloc(&d_err, sizeof(unsigned long long)));
         CK(cudaMemset(d_small, 0xFF, 64)); CK(cudaMemset(d_seg, 0xFF, 64)); CK(cudaMemset(d_ver, 0, 8));
+        CK(cudaMemset(d_err, 0, sizeof(unsigned long long)));
         uint64_t p3 = 3;
         CK(cudaMemcpy(d_p, &p3, 8, cudaMemcpyHostToDevice));
         launch_goldbach_phase1(d_small, 5, d_seg, 1000001, 1000101, 1000, 10, d_p, 1, d_ver,
-                               1000, THREADS_PER_BLOCK, 0);
+                               1000, THREADS_PER_BLOCK, 0, d_err);
         CK(cudaGetLastError());
         CK(cudaDeviceSynchronize());
-        unsigned int flag = 0; uint64_t ver = 0;
-        CK(cudaMemcpyFromSymbol(&flag, g_phase1_q_range_error, sizeof(unsigned int)));
+        unsigned long long flag = 0; uint64_t ver = 0;
+        CK(cudaMemcpy(&flag, d_err, sizeof(flag), cudaMemcpyDeviceToHost));
         CK(cudaMemcpy(&ver, d_ver, 8, cudaMemcpyDeviceToHost));
         bool ok = flag == 1 && ver == 0;
-        printf("    flag=%u verified bits=%llu -> %s\n", flag, (unsigned long long)ver,
+        printf("    flag=%llu verified bits=%llu -> %s\n", flag, (unsigned long long)ver,
                ok ? "ok" : "FAIL (flag must be 1, nothing verified)");
         if (!ok) total++;
-        unsigned int zero = 0;
-        CK(cudaMemcpyToSymbol(g_phase1_q_range_error, &zero, sizeof(unsigned int)));
         CK(cudaFree(d_small)); CK(cudaFree(d_seg)); CK(cudaFree(d_p)); CK(cudaFree(d_ver));
+        CK(cudaFree(d_err));
     }
 
     std::mt19937_64 rng(20260908);
