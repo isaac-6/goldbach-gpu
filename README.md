@@ -216,13 +216,13 @@ status 1.
 
 Verification is only as good as its checks, and a verifier that is silently wrong
 produces exactly the same output as one that is right. The repository therefore
-carries fourteen tests, most comparing a component against an independent
+carries fifteen tests, most comparing a component against an independent
 implementation or published data rather than against itself:
 
 | Test | What it checks |
 |---|---|
 | `test_gpu_sieve` | GPU segment sieve against an independently written CPU sieve, over fixed and randomised ranges including boundary cases. |
-| `test_phase1` | GPU verification against a CPU reference. Compares across prime-list prefixes, so the comparison resolves *which* prime succeeded rather than the saturated yes/no verdict. Walks ranges in segments with the verifier's own segment geometry, including a partial last segment and a switch between the two kernels, at batch sizes down to one prime per launch. |
+| `test_phase1` | GPU verification against a CPU reference. Compares across prime-list prefixes, so the comparison resolves *which* prime succeeded rather than the saturated yes/no verdict. Walks ranges in segments with the verifier's own segment geometry, including a partial last segment and a switch between the two kernels, at batch sizes down to one prime per launch. Also pins the p<sub>min</sub> maximum's tie rule: an equal p<sub>min</sub> at a smaller *n* must replace the stored one. |
 | `test_primality` | Baillie–PSW against the 12-base deterministic Miller–Rabin, device and host, with emphasis above 2<sup>63</sup>; plus inputs with known verdicts (confirmed with sympy): the smallest number that is a strong pseudoprime to every prime base up to 31, and primes near 2<sup>64</sup> whose parameter search needs up to 82 steps; and the V<sub>n+1</sub> ≡ 2Q check against the Lucas-V pseudoprimes tabulated by Baillie, Fiori and Wagstaff. |
 | `test_bpsw_spsp` | Every base-2 strong pseudoprime below 2<sup>32</sup> (2,314, generated independently) and the first ten strong Lucas pseudoprimes published by Baillie, Fiori and Wagstaff must be rejected by Baillie–PSW on device and host, and 126,897 primes accepted. |
 | `test_mr_spsp` | The Miller–Rabin half of the same controls, as its own test because Miller–Rabin is the default in Phase 2: every base-2 strong pseudoprime below 2<sup>32</sup> and the ten strong Lucas pseudoprimes rejected, the 126,897 primes accepted, on device and host. |
@@ -230,6 +230,7 @@ implementation or published data rather than against itself:
 | `test_sieve`, `test_bitset` | The CPU segmented sieve and the prime bitset against known π(n). |
 | `test_records` | The CPU definition of p<sub>min</sub> against 48 published record values computed independently by Oliveira e Silva. |
 | `test_record_check` | `goldbach --record-check` to 10<sup>8</sup> at three parameter sets against a brute-force record list: the output must be a subsequence and include the maximum. A fourth run pins tie-breaking: two numbers share a segment's maximum p<sub>min</sub>, and the smaller must be reported. |
+| `test_window` | Window mode at 4·10<sup>18</sup> and 10<sup>18</sup>: the prime count of a 10<sup>8</sup>-wide window against `primesieve`, and its largest p<sub>min</sub> against a GMP brute force; plus three windows whose largest p<sub>min</sub> is tied, on the transposed, scalar and CPU-fallback paths, where the smallest *n* must be reported. |
 | `test_count_primes` | `goldbach --count-primes` against known π(N), over many segments and from a non-default `--start`. |
 | `test_phase2_fallback` | With `--p-small=3`, exactly 421,501 numbers to 10<sup>6</sup> must reach the CPU fallback, and the run must still succeed; and 89,098 in a range above 10<sup>8</sup>, where the fallback tests q with Miller–Rabin or, with `--primetest=bpsw`, Baillie–PSW. |
 | `test_cli` | Every invalid command line of `goldbach`, `big_check` and `single_check` exits 1 with its message; edge cases still run. |

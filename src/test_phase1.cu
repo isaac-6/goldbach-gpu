@@ -53,6 +53,11 @@ static const uint64_t P_BATCH = 2000000;
 // nothing the test checks: launches on one stream run in order either way.
 static const uint64_t SYNC_EVERY_LAUNCHES = 64;
 
+// One record_max call, so that a test can fix the order of two calls.
+__global__ void record_max_kernel(unsigned long long* d, unsigned long long enc) {
+    record_max(d, enc);
+}
+
 static uint64_t isqrt64(uint64_t n) {
     if (n < 2) return n;
     uint64_t r = 1;
@@ -372,6 +377,38 @@ int main() {
         if (!ok) total++;
         CK(cudaFree(d_small)); CK(cudaFree(d_seg)); CK(cudaFree(d_p)); CK(cudaFree(d_ver));
         CK(cudaFree(d_err));
+    }
+
+    // -------------------------------------------------------
+    // record_max: the skip before the atomic must compare the whole packed
+    // value. Within a launch the order of two tied updates is up to the
+    // scheduler, and on this hardware the smaller n usually lands first, so an
+    // end-to-end run cannot pin this; separate launches fix the order here.
+    // Storing (p_min 19, index 17) and then (19, index 2) must leave index 2,
+    // the smaller n: a skip that compared p_min alone would keep index 17.
+    // -------------------------------------------------------
+    {
+        printf("  [record_max: tie resolves to the smaller index]\n");
+        unsigned long long* d_rec = nullptr;
+        CK(cudaMalloc(&d_rec, sizeof(unsigned long long)));
+        CK(cudaMemset(d_rec, 0, sizeof(unsigned long long)));
+        auto enc = [](uint64_t p, uint64_t idx) {
+            return ((unsigned long long)p << RECORD_IDX_BITS) | (RECORD_IDX_MASK - idx);
+        };
+        struct { uint64_t p, idx; } steps[] = {{19, 17}, {19, 2}, {18, 0}, {19, 5}};
+        for (auto& s : steps) {
+            record_max_kernel<<<1, 1>>>(d_rec, enc(s.p, s.idx));
+            CK(cudaGetLastError());
+            CK(cudaDeviceSynchronize());
+        }
+        unsigned long long got = 0;
+        CK(cudaMemcpy(&got, d_rec, sizeof(got), cudaMemcpyDeviceToHost));
+        bool ok = got == enc(19, 2);
+        printf("    stored p_min=%llu index=%llu -> %s\n", got >> RECORD_IDX_BITS,
+               (unsigned long long)(RECORD_IDX_MASK - (got & RECORD_IDX_MASK)),
+               ok ? "ok" : "FAIL (expected p_min=19 index=2)");
+        if (!ok) total++;
+        CK(cudaFree(d_rec));
     }
 
     std::mt19937_64 rng(20260908);

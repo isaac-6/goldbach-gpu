@@ -221,6 +221,13 @@ add_test(NAME test_record_check
                  $<TARGET_FILE:goldbach>)
 set_tests_properties(test_record_check PROPERTIES TIMEOUT 600)
 
+# Window mode: --count-primes above the small-prime bound and --window-max,
+# at 4e18 and 1e18 against primesieve and GMP, plus three tie windows.
+add_test(NAME test_window
+         COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_window.sh
+                 $<TARGET_FILE:goldbach>)
+set_tests_properties(test_window PROPERTIES TIMEOUT 600)
+
 # Parameter validation of goldbach, big_check and single_check.
 add_test(NAME test_cli
          COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_cli.sh

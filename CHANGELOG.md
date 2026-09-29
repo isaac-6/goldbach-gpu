@@ -110,6 +110,8 @@
     10^8 under both primality tests;
   - `test_record_check`: `--record-check` against brute-force records to 1e8,
     and a tie between two numbers in one segment;
+  - `test_window`: window counts and maxima at 4e18 and 1e18 against
+    primesieve and GMP, and ties on each Phase 1 path and in Phase 2;
   - `test_cli`: command-line validation;
   - `test_count_primes`, which now also runs from a non-default `--start`;
   - `test_phase1`, which now covers multiple segments and batch sizes 1, 7

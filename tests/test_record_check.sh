@@ -82,6 +82,9 @@ check() {
     [ -z "$extra" ] || { bad=1; why="$why; not records: $(tr '\n' ',' <<<"$extra")"; }
     sort -n -k1,1 -c <<<"$got" 2>/dev/null || { bad=1; why="$why; not ascending"; }
     grep -qxF "$MAXIMUM" <<<"$got" || { bad=1; why="$why; maximum $MAXIMUM missing"; }
+    # The overall maximum printed at the end is the same pair.
+    grep -q "^Window maximum p_min *: 1093 at n = 60119912 " <<<"$out" \
+        || { bad=1; why="$why; no or wrong 'Window maximum' line"; }
     if [ "$bad" -eq 0 ]; then
         echo "  ok   [$*] $(wc -l <<<"$got") records, all genuine, maximum present"
     else
@@ -96,7 +99,8 @@ TIE_EXPECTED="98 19
 992 73"
 out=$("$GOLDBACH" 1000 --record-check --p-small=17 --seg-size=64 2>&1); rc=$?
 got=$(sed -n 's/^\[record\] n=\([0-9]*\) p_min=\([0-9]*\)$/\1 \2/p' <<<"$out")
-if [ "$rc" -eq 0 ] && [ "$got" = "$TIE_EXPECTED" ]; then
+if [ "$rc" -eq 0 ] && [ "$got" = "$TIE_EXPECTED" ] \
+   && grep -q "^Window maximum p_min *: 73 at n = 992 " <<<"$out"; then
     echo "  ok   [1000 --p-small=17 --seg-size=64] tie at p_min=19 reported as n=98"
 else
     echo "  FAIL [1000 --p-small=17 --seg-size=64] exit $rc, records: $(tr '\n' ',' <<<"$got") expected: $(tr '\n' ',' <<<"$TIE_EXPECTED")"
