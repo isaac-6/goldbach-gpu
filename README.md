@@ -43,7 +43,10 @@ At 10<sup>14</sup> this is **1.13× faster than v3.0.0**, whose tag run took
 942.3 s wall against 836.13 s here; the gain is the `TILE_ODDS` change described
 under Tuning.
 
-Every row is a plain verification run: no `--record-check`, no profiler. At
+Every row is a plain verification run: no `--record-check`, no profiler, and no
+prime counting. Counting became the default later, in v3.2.0, and adds 3.1% at
+10<sup>12</sup> and 2.5% at 10<sup>13</sup>; `--no-count-primes` reproduces these
+timings. At
 10<sup>10</sup> the computation is only 0.0755 s against 0.540 s wall clock, so
 most of the wall time is fixed startup. That row should not be read as a
 throughput figure.
@@ -134,8 +137,8 @@ Verifies every even number from 4 to the given limit. Useful options:
 | `--batch-size=N` | Primes uploaded per Phase 1 kernel launch, 1 to 2<sup>32</sup>. Default 10<sup>5</sup>. |
 | `--record-check` | Print each new maximum p<sub>min</sub> as it is found, and the overall maximum at the end. Requires the default `--start`. |
 | `--window-max` | Print the largest p<sub>min</sub> over [start, limit] and the smallest *n* attaining it, for any `--start`. Numbers resolved by the CPU fallback are included. A window maximum, not a p-record. |
-| `--count-primes` | Also print π(limit), counted from the segment sieve. With a `--start` above the small-prime bound (about √limit), print the count of primes in (start, limit] instead. |
-| `--count-file=F` | With `--count-primes`, write each segment's range and prime count to F. |
+| `--no-count-primes` | Do not count primes. By default every run also prints π(limit), counted from the segment sieve, or, with a `--start` above the small-prime bound (about √limit), the count of primes in (start, limit]. Counting costs 3.1% at 10<sup>12</sup> and 2.5% at 10<sup>13</sup>. `--count-primes` is still accepted and does nothing. |
+| `--count-file=F` | Write each segment's range and prime count to F. Needs counting on. |
 | `--progress` | Live throughput and estimated completion. |
 | `--primetest=mr\|bpsw` | Primality test in the CPU fallback (Phase 2) for q above 10<sup>8</sup>. Default MR, the proved 12-base Miller–Rabin. |
 
@@ -231,7 +234,7 @@ implementation or published data rather than against itself:
 | `test_records` | The CPU definition of p<sub>min</sub> against 48 published record values computed independently by Oliveira e Silva. |
 | `test_record_check` | `goldbach --record-check` to 10<sup>8</sup> at three parameter sets against a brute-force record list: the output must be a subsequence and include the maximum. A fourth run pins tie-breaking: two numbers share a segment's maximum p<sub>min</sub>, and the smaller must be reported. |
 | `test_window` | Window mode at 4·10<sup>18</sup> and 10<sup>18</sup>: the prime count of a 10<sup>8</sup>-wide window against `primesieve`, and its largest p<sub>min</sub> against a GMP brute force; plus three windows whose largest p<sub>min</sub> is tied, on the transposed, scalar and CPU-fallback paths, where the smallest *n* must be reported. |
-| `test_count_primes` | `goldbach --count-primes` against known π(N), over many segments and from a non-default `--start`. |
+| `test_count_primes` | `goldbach`'s prime count, on by default, against known π(N), over many segments and from a non-default `--start`. |
 | `test_phase2_fallback` | With `--p-small=3`, exactly 421,501 numbers to 10<sup>6</sup> must reach the CPU fallback, and the run must still succeed; and 89,098 in a range above 10<sup>8</sup>, where the fallback tests q with Miller–Rabin or, with `--primetest=bpsw`, Baillie–PSW. |
 | `test_cli` | Every invalid command line of `goldbach`, `big_check` and `single_check` exits 1 with its message; edge cases still run. |
 | `test_big_check` | `big_check` against the same 48 published records, plus small-*n* edges, the search-limit exit, thread-count determinism and expression input. Reads the record table out of `test_records.cpp` rather than copying it. |

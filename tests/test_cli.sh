@@ -86,13 +86,33 @@ reject "$G" "contains no even number to check"     1000001 --start=1000001
 reject "$G" "contains no even number to check"     5 --start=5
 reject "$G" "unknown --primetest value"             1000000 --primetest=XX
 reject "$G" "LIMIT is required"                     --seg-size=1000000
-reject "$G" "--count-file requires --count-primes"  1000000 --count-file=x.txt
+reject "$G" "--count-file needs prime counting"     1000000 --no-count-primes --count-file=x.txt
 reject "$G" "--record-check requires --start=4"     2000000 --record-check --start=1100000
+
+# accept_no_count <goldbach args...>: must succeed and print no prime count.
+accept_no_count() {
+    local out rc
+    out=$(timeout 300 "$GOLDBACH" "$@" 2>&1); rc=$?
+    n=$((n+1))
+    if [ "$rc" -eq 0 ] && grep -q "satisfy Goldbach" <<<"$out" \
+       && ! grep -qE "^pi\(|^primes in \(" <<<"$out"; then
+        echo "  ok   goldbach $* (accepted, no prime count)"
+    else
+        echo "  FAIL goldbach $*: exit $rc, expected success with no 'pi(' or 'primes in (' line"
+        fails=$((fails+1))
+    fi
+}
 
 echo "[goldbach: accepted edge cases]"
 accept "All even numbers from 4 up to 4 satisfy"             4
 accept "All even numbers from 4 up to 4 satisfy"             5
 accept "All even numbers from 1000000 up to 1000000 satisfy" 1000000 --start=1000000
+# Prime counting is on by default; --no-count-primes turns it off, and
+# --count-primes is accepted as a no-op.
+accept "pi(1000000) = 78498"                                 1000000
+accept "pi(1000000) = 78498"                                 1000000 --count-primes
+accept_no_count                                              1000000 --no-count-primes
+accept_no_count                                              1000000 --no-count-primes --count-primes
 accept "All even numbers from 1000000 up to 1000000 satisfy" 1000000 --start=999999
 accept "All even numbers from 4 up to 2000000 satisfy"       2000000 --record-check --start=3
 accept "satisfy Goldbach"                                    18446744065119617024 --start=18446744065119616000 --seg-size=64

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # test_count_primes.sh
-# Functional test for goldbach --count-primes.
+# Functional test for goldbach's prime count, which is on by default.
 #
 # Six cases:
 #   1 1e9          pi(10^9)        = 50,847,534   (OEIS A006880)
@@ -36,12 +36,13 @@ bad() { printf '  FAIL %s\n' "$*"; fails=$((fails+1)); }
 TMP=$(mktemp -d)
 trap 'rm -rf "$TMP"' EXIT
 
-# Runs goldbach --count-primes and checks the single "pi(N) = v" line.
+# Runs goldbach (counting is on by default) and checks the single
+# "pi(N) = v" line.
 # $1 = N, $2 = expected pi(N), remaining args passed through.
 check_pi() {
     local n="$1" want="$2"; shift 2
     local out rc lines got
-    out=$("$GOLDBACH" "$n" --count-primes "$@" 2>&1); rc=$?
+    out=$("$GOLDBACH" "$n" "$@" 2>&1); rc=$?
     if [ "$rc" -ne 0 ]; then
         bad "N=$n $*: exit code $rc"; printf '%s\n' "$out" | tail -5; return
     fi
@@ -78,7 +79,8 @@ else
 fi
 
 echo "[4/6] pi(123456789) from --start=1001"
-check_pi 123456789 7027260 --seg-size=1000000 --start=1001 --batch-size=7
+# --count-primes is still accepted, and does nothing.
+check_pi 123456789 7027260 --seg-size=1000000 --start=1001 --batch-size=7 --count-primes
 
 echo "[5/6] pi(1000000007) from --start=65536"
 check_pi 1000000007 50847535 --seg-size=3000002 --start=65536

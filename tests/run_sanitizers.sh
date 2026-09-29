@@ -14,9 +14,9 @@
 #                           --seg-size=1000: the RECORD=true Phase 1 kernels
 #                           (scalar and transposed), count_unverified_kernel and
 #                           Phase 2 on every segment
-#          goldbach_count   goldbach 3000001 --count-primes --seg-size=100002
-#                           --p-small=1000 --batch-size=7:
-#                           count_segment_primes_kernel and the RECORD=false
+#          goldbach_count   goldbach 3000001 --seg-size=100002
+#                           --p-small=1000 --batch-size=7 (prime counting is on
+#                           by default): count_segment_primes_kernel and the RECORD=false
 #                           kernels over many launches per segment
 #
 # Not part of ctest: it needs the CUDA debugger interface, which is not
@@ -110,7 +110,7 @@ target_cmd() {
     case "$1" in
         sieve_driver)    CMD=("$OUT/sieve_driver") ;;
         goldbach_record) CMD=("$BUILD/bin/goldbach" 200000 --record-check --p-small=3 --seg-size=1000) ;;
-        goldbach_count)  CMD=("$BUILD/bin/goldbach" 3000001 --count-primes --seg-size=100002
+        goldbach_count)  CMD=("$BUILD/bin/goldbach" 3000001 --seg-size=100002
                               --p-small=1000 --batch-size=7) ;;
         test_gpu_sieve|test_phase1) CMD=("$BUILD/bin/$1") ;;
         *) return 1 ;;

@@ -82,6 +82,12 @@
   thread no longer outlives a variable it read.
 
 ### Changed
+- **Prime counting is on by default.** Every run prints π(N), or the window
+  count `primes in (START, N] = ...` when START is above the small-prime
+  bound. It costs 3.1% at 1e12 and 2.5% at 1e13 (variable cost, interleaved
+  runs against counting off). `--no-count-primes` turns it off and restores
+  the earlier timings; `--count-primes` is still accepted and does nothing.
+  `--count-file` needs counting on.
 - **p_min tracking is 16 times cheaper.** Every thread ended on an atomic maximum
   of one address; it is now skipped when it cannot raise the stored value,
   compared on the full packed (p_min, index) value so ties still resolve to

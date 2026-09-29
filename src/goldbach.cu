@@ -97,7 +97,8 @@ static uint64_t      g_record_p = 0;
 static uint64_t      g_window_p = 0;
 static uint64_t      g_window_n = 0;
 
-// --count-primes: running total of primes counted over all segments, and the
+// Prime counting (on unless --no-count-primes): running total of primes
+// counted over all segments, and the
 // per-segment counts for --count-file. Segments may complete out of order under
 // multi-GPU; the counts are sorted by range before they are written, and the
 // total is order-independent.
@@ -143,7 +144,7 @@ struct Options {
     PrimeTest primeTest = PrimeTest::MillerRabin;
     bool recordCheck = false;
     bool windowMax = false;
-    bool countPrimes = false;
+    bool countPrimes = true;    // --no-count-primes turns it off
     std::string countFile;
 };
 
@@ -239,10 +240,12 @@ __global__ void count_unverified_kernel(
     }
 }
 
-// --count-primes only: number of set bits in d_seg_bits over the bit indices
+// Prime counting (on unless --no-count-primes): number of set bits in
+// d_seg_bits over the bit indices
 // [i_lo, i_hi], i.e. the primes among the odd q = q_low + 2i in that range.
-// Launched after both sieve kernels and never on the default path, so the
-// kernels above are compiled exactly as without it.
+// A separate launch after both sieve kernels, so the sieve and Phase 1 kernels
+// are compiled exactly as without it. It costs 3.1% at 1e12 and 2.5% at 1e13,
+// measured against --no-count-primes.
 __global__ void count_segment_primes_kernel(
     const uint64_t* __restrict__ d_seg_bits,
     uint64_t i_lo, uint64_t i_hi,
@@ -696,11 +699,13 @@ void print_usage(const char* prog) {
               << "                   (requires the default --start=4; at most one per segment)\n"
               << "  --window-max     Print the largest p_min over [START, LIMIT] and the smallest\n"
               << "                   n attaining it (any --start; Phase 2 numbers included)\n"
-              << "  --count-primes   Also count the primes up to LIMIT from the segment sieve;\n"
-              << "                   prints pi(LIMIT) = ..., or, when START exceeds the\n"
-              << "                   small-prime bound (about sqrt(LIMIT)), the window count\n"
-              << "                   primes in (START, LIMIT] = ...\n"
-              << "  --count-file=F   With --count-primes, write one line per segment to F:\n"
+              << "  --no-count-primes  Do not count primes. By default the run also counts the\n"
+              << "                   primes up to LIMIT from the segment sieve and prints\n"
+              << "                   pi(LIMIT) = ..., or, when START exceeds the small-prime\n"
+              << "                   bound (about sqrt(LIMIT)), primes in (START, LIMIT] = ...\n"
+              << "                   Counting costs 3.1% at 1e12 and 2.5% at 1e13.\n"
+              << "  --count-primes   Accepted for compatibility; counting is the default\n"
+              << "  --count-file=F   Write one line per segment to F (needs counting on):\n"
               << "                   \"A B count\", count = number of primes in [A, B]\n"
               << "  --p-small=N      GPU prime search bound, 3 <= N <= 4,000,000,000\n"
               << "                   (default: 1000000)\n"
@@ -771,7 +776,10 @@ int main(int argc, char** argv) {
             if (arg.rfind("--p-small=", 0) == 0) { P_SMALL = parse_u64(arg.substr(10), "--p-small"); continue; }
             if (arg == "--record-check") { opt.recordCheck = true; continue; }
             if (arg == "--window-max") { opt.windowMax = true; continue; }
-            if (arg == "--count-primes") { opt.countPrimes = true; continue; }
+            // Counting is the default: --count-primes is accepted and does
+            // nothing, so it cannot undo an earlier --no-count-primes.
+            if (arg == "--count-primes") { continue; }
+            if (arg == "--no-count-primes") { opt.countPrimes = false; continue; }
             if (arg.rfind("--count-file=", 0) == 0) { opt.countFile = arg.substr(13); continue; }
             if (arg.rfind("--start=", 0) == 0) { START = parse_u64(arg.substr(8), "--start"); continue; }
             if (arg.rfind("--primetest=", 0) == 0) {
@@ -817,7 +825,8 @@ int main(int argc, char** argv) {
     const uint64_t COUNT_HIGH = LIMIT;
     if (LIMIT % 2 != 0) LIMIT--;
     if (!opt.countFile.empty() && !opt.countPrimes) {
-        std::cerr << "Error: --count-file requires --count-primes.\n"; return 1;
+        std::cerr << "Error: --count-file needs prime counting, which --no-count-primes turns off.\n";
+        return 1;
     }
     if (seg_size_explicit && (SEG_SIZE == 0 || SEG_SIZE % 2 != 0 || SEG_SIZE > MAX_SEG_SIZE)) {
         std::cerr << "Error: SEG_SIZE must be even, > 0 and < 2^32 (at most "
