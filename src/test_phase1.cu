@@ -42,6 +42,17 @@ std::vector<char> segmented_sieve(uint64_t low, uint64_t high);
 static const int THREADS_PER_BLOCK = 256;
 static const uint64_t P_BATCH = 2000000;
 
+// Launches queued between host synchronizations, at most. compute-sanitizer
+// racecheck keeps ~2.2 KB per thread of every launch queued since the last
+// synchronize and frees it only then. At batch sizes 1 and 7 this loop queued
+// up to 78,498 and 11,214 launches of ~1,000-5,000 threads per prime prefix:
+// 15 GiB for the "switch" range at batch 1, over 24 GiB at batch 7 on the 1e9
+// range, and an out-of-memory kill of the machine's whole allowance at batch 1
+// there (measured; ablation-logs/reruns/v320/memprobe). A synchronize every
+// 64 launches bounds that to about 64 * 5,120 * 2.2 KB ~= 0.7 GiB and changes
+// nothing the test checks: launches on one stream run in order either way.
+static const uint64_t SYNC_EVERY_LAUNCHES = 64;
+
 static uint64_t isqrt64(uint64_t n) {
     if (n < 2) return n;
     uint64_t r = 1;
@@ -173,6 +184,7 @@ static uint64_t check_range(uint64_t n_low, uint64_t n_high, uint64_t p_small,
             if (K > gpu_primes.size()) continue;
 
             CK(cudaMemset(d_verified, 0, ver_words * sizeof(uint64_t)));
+            uint64_t queued = 0;   // launches since the last synchronize
             for (uint64_t bi = 0; bi < K; bi += batch) {
                 uint64_t bsize = std::min(batch, K - bi);
                 CK(cudaMemcpy(d_p_batch, gpu_primes.data() + bi,
@@ -183,6 +195,10 @@ static uint64_t check_range(uint64_t n_low, uint64_t n_high, uint64_t p_small,
                     seg_start, geo.seg_even_count, d_p_batch, bsize, d_verified,
                     p_small, THREADS_PER_BLOCK, 0);
                 CK(cudaGetLastError());
+                if (++queued == SYNC_EVERY_LAUNCHES) {   // see SYNC_EVERY_LAUNCHES
+                    CK(cudaStreamSynchronize(0));
+                    queued = 0;
+                }
             }
             CK(cudaDeviceSynchronize());
             unsigned int q_range_error = 0;
