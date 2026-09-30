@@ -294,6 +294,40 @@ agreed with an independent sieve on every odd number below 2<sup>32</sup>.
 
 ---
 
+## Scope and limits
+
+A successful run means that every even number in the stated range was written
+as a sum of two primes, each decided by a sieve or by a deterministic test. The
+GPU phase uses sieved bitsets only. The CPU fallback (Phase 2) uses a table
+below 10<sup>8</sup> and, above it, a Miller–Rabin test with the first twelve
+prime bases, which is proved deterministic below 3.19·10<sup>23</sup> and so
+for every 64-bit input. Baillie–PSW, selected with `--primetest=bpsw`, is not a
+primality proof; below 2<sup>64</sup> it is exact only by computation (see
+Correctness).
+
+Phase 2 searches p ≤ 10<sup>8</sup> only. If it finds no partition for some n,
+the run stops with the message "no partition with p ≤ 10^8 found for n = …"
+and exit status 1. This is a search-limit outcome, not a counterexample claim.
+Exit status 1 is also used for invalid input and internal errors, so the
+message identifies the case. Such an n can be examined further with
+`single_check`, whose search extends to every p ≤ n/2 with a deterministic test
+for any n below 2<sup>64</sup>, or with `big_check --p-max=…`.
+
+`single_check` stops at the first partition it finds and reports a
+counterexample (exit status 2) only after exhausting every p ≤ n/2. The search
+is exhaustive by construction for every 64-bit n, but a full search near
+2<sup>64</sup> would take far longer than any practical run and has not been
+performed. `big_check` accepts n of any size, but decides q with GMP's
+`mpz_probab_prime_p`: for q of 2<sup>64</sup> or more the result is a probable
+prime, and the output says so.
+
+With more than one GPU, the sequence printed by `--record-check` depends on
+segment scheduling by design; `--window-max` does not. The default CMake flags
+include `-march=native`, which ties the host binaries to CPUs with the build
+machine's instruction set. This limits portability, not correctness.
+
+---
+
 ## Tuning
 
 `TILE_ODDS` and `SPLIT_THRESHOLD` are compile-time constants, overridable with
