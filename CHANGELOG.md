@@ -1,137 +1,121 @@
-## [3.2.0] - Unreleased
-
-### Fixed
-- **False success when a segment had 2^32 or more unverified numbers.** The
-  per-segment unverified count was 32-bit and wrapped to 0, so Phase 2 was
-  skipped: `goldbach 8589934722 --seg-size=4294967360 --p-small=0` reported
-  every even number verified after testing no prime. The count is now 64-bit,
-  and the count kernel also counts verified numbers. Every segment must satisfy
-  verified + unverified = its size, and its launch is checked; anything else
-  ends the run with exit status 1.
-- **Sieve overflow near 2^64.** The first multiple `(q_low + p - 1) / p * p`
-  wrapped once q_low > 2^64 - p, so the prime was skipped and its multiples
-  stayed marked prime (8,632 composites in one segment at N = 2^64 - 2^30). It
-  is now computed as an offset from q_low that cannot overflow.
-- **Segment counter wrap.** For N within 2*SEG*(G+1) of 2^64 the counter wrapped
-  back to small numbers and the run never finished. N is now bounded (below).
-- **Baillie-PSW rejected some primes (present since v2.1.0).** The Selfridge
-  search for D stopped after 40 tries and called n a perfect square. Some
-  primes need more. Below 2^32 there are 16, needing 43 to 49 tries:
-  452980999, 505313251, 1143791191, 1272463669, 1373861479, 1582819291,
-  2055693949, 2283397141, 2287905811, 2366713651, 2410622971, 3441877651,
-  3703811101, 3823259311, 4131973231 and 4294405021. Device and host BPSW
-  called them composite.
-
-  Squares are now detected exactly before the search, and the search has no
-  cap. Over every odd n below 2^32, BPSW now agrees with Miller-Rabin.
-
-  The error ran one way only: a prime reported composite, never the reverse.
-  It could therefore cost a Phase 2 fallback, or at worst a false "no
-  partition" failure, but never a false success. It could reach `goldbach`
-  only through Phase 2, for q > 10^8, under `--primetest=BPSW`. Phase 1 calls
-  a primality test only for a q outside both of its prime bitsets, and no q
-  is: every q = n - p lies in [q_low, q_high] (see below).
-
-  No reported result depended on it: every published run reported 0 Phase 2
-  fallbacks, so none entered Phase 2. `single_check` uses its own
-  Miller-Rabin and `big_check` uses GMP; neither was affected.
-- **BPSW follows Baillie, Fiori and Wagstaff (2021).** Their recommended test
-  (arXiv:2006.14425, Section 6) adds two checks to the strong Lucas test:
-  V_{n+1} = 2Q and Euler's criterion Q^((n+1)/2) = Q * (Q/n), both mod n. Both
-  are now applied, host and device, at the cost of one more doubling step; each
-  step cites the paper. BPSW still rejects every base-2 pseudoprime below 2^64
-  (the Feitsma-Galway list) and agrees with Miller-Rabin on every odd n below
-  2^32. Before, the code implemented the original test of their Section 3.
-- **Unreachable primality fallback in Phase 1 removed.** `is_prime_q`, the
-  scalar kernel's lookup, fell back to BPSW or Miller-Rabin for a q outside
-  both bitsets. None can occur: with p <= P_SMALL, every q = n - p satisfies
-  q_low <= q <= q_high. That fallback is now a device error flag, which the
-  host checks after each segment's Phase 1 launches; if it is set, the run
-  exits 1. The scalar kernel shrinks from 5,602 to 242 instructions (sm_120);
-  the other kernels are unchanged. `--primetest` affects Phase 2 only.
-- **`--record-check` lost records above `--p-small`.** Numbers resolved by
-  Phase 2 did not report p_min, so the maximum could be missed and non-records
-  printed (n = 79,097,318, p_min = 1009, with `--p-small=1020`). Phase 2 now
-  reports p_min. The flag is rejected with a `--start` other than 4, where its
-  maxima are not records.
-- **Parameter validation.** Rejected with exit status 1:
-  - `--batch-size` of 0 (hung) or above 2^32;
-  - `--p-small` below 3;
-  - `--seg-size` that is 0, odd or at least 2^32;
-  - N above 2^64 - 2^33, or N + 2*SEG*(G+1) at or above 2^64;
-  - extra positional arguments and unknown options;
-  - negative or malformed numbers, which used to wrap or abort on an uncaught
-    exception.
-
-  N = 4 and START = N are now accepted. An odd START equal to an odd N is
-  refused with "[START, N] contains no even number to check", not with "START
-  must be <= LIMIT"; a run that checks nothing never reports success.
-  `--batch-size` no longer sizes the device buffer beyond the primes Phase 1
-  uses, so every value up to 2^32 runs (2^32 used to ask for 32 GiB).
-  `--count-primes` works for every N with `--p-small=3` (N < 9 was refused).
-- **`big_check`.** `--p-max` is capped at 4e9. 2^64 - 1 used to crash, and an
-  allocation failure now exits 1. q above 2^64 is reported as a probable
-  prime, never as prime.
-- **`single_check`.** Its kernel launch is now checked, and a counterexample
-  now exits 2 instead of 0. N is parsed strictly, as in `goldbach`: `-2` used
-  to run as 2^64 - 2 and `12abc` as 12; both, and a second argument, now exit
-  1.
-- Scalar Phase 1 reads `d_verified` with a relaxed atomic load, and the tiled
-  sieve clears bytes with relaxed block-scope atomic stores, removing two formal
-  data races. `TILE_ODDS` is checked at compile time, and the `--progress`
-  thread no longer outlives a variable it read.
-
-### Changed
-- **Prime counting is on by default.** Every run prints π(N), or the window
-  count `primes in (START, N] = ...` when START is above the small-prime
-  bound. It costs 0.2% at 1e12 and 0.4% at 1e13 (variable cost, interleaved
-  runs against counting off). `--no-count-primes` turns it off and restores
-  the earlier timings; `--count-primes` is still accepted and does nothing.
-  `--count-file` needs counting on.
-
-  As first made default the count had a kernel of its own, with its own
-  memset, its own copy and one atomic per warp on a single address: ~90 us
-  per segment, 3.1% at 1e12 and 2.5% at 1e13, against ~17 us of actual
-  reading. It is now summed by `count_unverified_kernel`, which already reads
-  every segment, reduced per block, and read back with the existing counts.
-  Every pi line and count file is byte-identical to before.
-- **p_min tracking is 16 times cheaper.** Every thread ended on an atomic maximum
-  of one address; it is now skipped when it cannot raise the stored value,
-  compared on the full packed (p_min, index) value so ties still resolve to
-  the smallest n. `--record-check` cost 36% at 1e12 and now costs 2.2%, as does
-  `--window-max`. The default path does not track p_min and is unchanged.
-- A Phase 2 failure reads "no partition with p ≤ 10^8 found for n = …": Phase 2
-  searches p ≤ 10^8, so this is a search limit, not a counterexample.
-- **Phase 2 tests q > 10^8 with Miller-Rabin by default.** The 12-base
-  Miller-Rabin is proved deterministic below 2^64; BPSW is exact there only by
-  computation. `--primetest=bpsw` still selects BPSW. Phase 2 is the only
-  place `goldbach` tests primality, and no published run reached it.
+## [3.2.0] - YYYY-MM-DD
 
 ### Added
-- `--window-max`: the largest p_min over [START, N] and the smallest n
-  attaining it, for any START, Phase 2 numbers included. `--record-check`
-  prints the same overall maximum at the end.
-- `--count-primes` with a START above the small-prime bound (about sqrt(N))
-  prints the window count, `primes in (START, N] = ...`, instead of refusing.
-- `--count-primes` and `--count-file`.
-- Tests:
-  - `test_bpsw_spsp`: every base-2 strong pseudoprime below 2^32 and the
-    first ten published strong Lucas pseudoprimes, through BPSW and
-    Miller-Rabin on device and host;
-  - `test_mr_spsp`: the same controls through Miller-Rabin, device and host;
-  - `test_phase2_fallback`: an exact Phase 2 count, below 10^6 and above
-    10^8 under both primality tests;
+- **Window mode.** `--window-max` prints the largest p_min over [START, N] and
+  the smallest n attaining it, for any START, with Phase 2 numbers included.
+  The interval is closed and holds every even n in [START, N].
+- **Prime counting is on by default.** Every run prints π(N) or, when START is
+  above the small-prime bound (about √N), `primes in (START, N] = ...`, the
+  count of primes q with START < q ≤ N. `--no-count-primes` turns it off,
+  `--count-primes` is still accepted and does nothing, and `--count-file=F`
+  writes one line per segment ("A B count"; needs counting on). Counting costs
+  0.2% at 1e12 and 0.4% at 1e13 (variable cost, interleaved runs).
+- **Baillie–PSW option.** `--primetest=bpsw` selects the test of Baillie, Fiori
+  and Wagstaff (Math. Comp. 90, 2021; arXiv:2006.14425, Section 6): strong
+  base-2, Method A* parameters, strong Lucas, V_{n+1} = 2Q and Euler's
+  criterion for Q, on host and device. It rejects every base-2 pseudoprime
+  below 2^64 (the Feitsma-Galway list) and agrees with Miller-Rabin on every
+  odd n below 2^32.
+- **`big_check` and `single_check` hardening.** `big_check`: `--p-max` is
+  capped at 4e9, an allocation failure exits 1, and q of 2^64 or more is
+  reported as a probable prime. `single_check`: the kernel launch is checked, a
+  counterexample exits 2, and N is parsed strictly as in `goldbach` (negative,
+  malformed and extra arguments exit 1).
+- **Tests.**
+  - `test_bpsw_spsp` and `test_mr_spsp`: every base-2 strong pseudoprime below
+    2^32 and the first ten published strong Lucas pseudoprimes, through
+    Baillie–PSW and Miller-Rabin, on device and host;
+  - `test_phase2_fallback`: an exact Phase 2 count below 10^6 and above 10^8,
+    under both primality tests;
   - `test_record_check`: `--record-check` against brute-force records to 1e8,
     and a tie between two numbers in one segment;
   - `test_window`: window counts and maxima at 4e18 and 1e18 against
     primesieve and GMP, and ties on each Phase 1 path and in Phase 2;
-  - `test_cli`: command-line validation;
-  - `test_count_primes`, which now also runs from a non-default `--start`;
-  - `test_phase1`, which now covers multiple segments and batch sizes 1, 7
-    and 1000;
-  - `test_sieve` and `test_bitset`, now registered with CTest.
-- `tests/run_sanitizers.sh` (not part of ctest), covering `goldbach` itself
-  (`--record-check`, `--count-primes`) as well as the kernel tests.
+  - `test_cli`: command-line validation of the three tools;
+  - `test_count_primes`, which also runs from a non-default START;
+  - `test_phase1`, which covers multiple segments and batch sizes 1, 7 and
+    1000, and pins the p_min tie rule;
+  - `test_sieve` and `test_bitset`, registered with CTest.
+- **`tests/run_sanitizers.sh`** (not part of ctest): compute-sanitizer runs of
+  the kernel tests and of `goldbach` itself (`--record-check`, prime counting).
+
+### Changed
+- **Tiling and byte-wide marking.** The tiled sieve clears bytes with relaxed
+  block-scope atomic stores (`st.relaxed.cta.shared.b8`), which compile to the
+  same single-byte store as before. `TILE_ODDS` is checked at compile time.
+  Scalar Phase 1 reads `d_verified` with a relaxed atomic load.
+- **Transposed Phase 1 and the scalar kernel.** The scalar kernel's lookup of a
+  q outside both bitsets, which cannot occur (with p <= P_SMALL every
+  q = n - p lies in [q_low, q_high]), is replaced by a device error flag that
+  the host checks after each segment's Phase 1 launches; the run exits 1 if it
+  is set. The kernel shrinks from 5,602 to 242 instructions (sm_120). The
+  other kernels are unchanged, and `--primetest` affects Phase 2 only.
+- **Folded prime count.** Counting is summed inside `count_unverified_kernel`,
+  which already reads every segment, reduced per block and read back with the
+  existing counts. The earlier separate count kernel cost 3.1% at 1e12 and
+  2.5% at 1e13. Every pi line and count file is byte-identical to before.
+- **p_min tracking.** The atomic maximum is skipped when it cannot raise the
+  stored value, compared on the full packed (p_min, index) value so ties resolve
+  to the smallest n. `--record-check` and `--window-max` cost 2.2% at 1e12
+  (previously 36%). The default path does not track p_min.
+- **`--record-check`** includes numbers resolved by Phase 2, and is rejected
+  with a START other than 4, where its maxima are not records. It also prints
+  the overall maximum at the end.
+- **Validation and fail-closed accounting.** Every segment must satisfy
+  verified + unverified = its size, and its launch is checked; otherwise the
+  run exits 1. The per-segment unverified count is 64-bit and the count kernel
+  also counts verified numbers. Invalid input exits 1 before any work starts:
+  - `--batch-size` of 0 or above 2^32;
+  - `--p-small` below 3;
+  - `--seg-size` that is 0, odd or at least 2^32;
+  - N above 2^64 - 2^33, or N + 2*SEG*(G+1) at or above 2^64;
+  - extra positional arguments and unknown options;
+  - negative or malformed numbers.
+
+  N = 4 and START = N are accepted. An odd START equal to an odd N is refused
+  with "[START, N] contains no even number to check". `--batch-size` no longer
+  sizes the device buffer beyond the primes Phase 1 uses, and `--count-primes`
+  works for every N with `--p-small=3`.
+- **Phase 2 primality test.** Phase 2 tests q > 10^8 with the 12-base
+  Miller-Rabin by default, proved deterministic below 3.19e23 and so for every
+  64-bit input. Phase 2 is the only place `goldbach` tests primality.
+- **Phase 2 message.** A Phase 2 failure reads "no partition with p ≤ 10^8
+  found for n = …": Phase 2 searches p ≤ 10^8, so this is a search limit and
+  not a counterexample.
+
+### Fixed
+- Segments with 2^32 or more unverified numbers were counted modulo 2^32, so
+  Phase 2 was skipped for them; the count is now 64-bit.
+- The first sieve multiple `(q_low + p - 1) / p * p` overflowed for
+  q_low > 2^64 - p; it is now an offset from q_low that cannot overflow.
+- The segment counter wrapped for N within 2*SEG*(G+1) of 2^64; N is now
+  bounded as above.
+- Baillie–PSW called 16 primes below 2^32 composite (452980999, 505313251,
+  1143791191, 1272463669, 1373861479, 1582819291, 2055693949, 2283397141,
+  2287905811, 2366713651, 2410622971, 3441877651, 3703811101, 3823259311,
+  4131973231 and 4294405021) because the search for D stopped after 40 tries.
+  Squares are now detected exactly and the search has no cap. The error was
+  present from v2.1.0; it produced false "composite" verdicts only, and it could
+  reach `goldbach` only through Phase 2 for q > 10^8 under `--primetest=bpsw`.
+  No published run reported a Phase 2 fallback.
+- `--record-check` omitted numbers resolved by Phase 2 (for example
+  n = 79,097,318 with p_min = 1009 under `--p-small=1020`).
+- `single_check` returned exit status 0 for a counterexample and ran `-2` as
+  2^64 - 2 and `12abc` as 12.
+- `big_check` crashed for `--p-max=18446744073709551615`.
+- Two formal data races were removed (the plain byte stores of the tiled sieve
+  and the plain read of `d_verified`), and the `--progress` thread no longer
+  outlives a variable it reads.
+
+### Known limitations
+- The message printed for an unresolved n names the bound (p ≤ 10^8) but not
+  `single_check` or `big_check` as the next step, and the run exits with status
+  1, the same status as invalid input and internal errors.
+- The default CMake flags include `-march=native`, so binaries built on one host
+  run only on CPUs with the same instruction set.
+- The Baillie–PSW test is exact below 2^64 by computation, not by proof.
+- With `--gpus` above 1 the sequence printed by `--record-check` depends on
+  segment scheduling; `--window-max` does not.
 
 ### Removed
 - `tests/validation.sh` and `tests/validation_gpu.sh`, which checked outputs

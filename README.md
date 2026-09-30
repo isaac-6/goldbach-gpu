@@ -12,9 +12,13 @@
 Exhaustive GPU verification of Goldbach's conjecture: every even integer in a
 range is checked for a representation as the sum of two primes.
 
-Verifies every even number from 4 to 10<sup>14</sup> in **13 minutes 56 seconds**
-on a single RTX 5090, with no counterexamples found. On four GPUs, 10<sup>13</sup>
-takes 20.9 seconds at 99.95% parallel efficiency.
+Verifies every even number from 4 to 10<sup>14</sup> in **14 minutes 17 seconds**
+(857 s) on a single RTX 5090, with no counterexamples found; this run also counts
+the primes up to 10<sup>14</sup> and checks the record sequence, and its count,
+3,204,941,750,802, equals primecount's. Windows of up to 10<sup>15</sup> even
+numbers starting at 4·10<sup>18</sup> have been verified and prime-counted the
+same way (see Results). On four GPUs, measured on a separate node at an earlier
+commit, 10<sup>13</sup> takes 20.9 seconds at 99.95% parallel efficiency.
 
 This does not approach the research frontier: Oliveira e Silva, Herzog and Pardi
 verified to 4×10<sup>18</sup> in 2014 using a distributed CPU cluster over several
@@ -27,43 +31,59 @@ hardware an individual can own, in minutes rather than machine-years.
 
 ### Single GPU
 
-v3.1.0, RTX 5090. CUDA 13.3, Ubuntu 26.04 (WSL2). Mean ± sample standard
-deviation; run counts differ by limit and are given in the table. Zero Phase 2
-fallbacks throughout. `TILE_ODDS=16384`, `SPLIT_THRESHOLD=65536`.
+v3.2.0, RTX 5090 (driver 610.88), CUDA 13.3, Ubuntu 26.04 (WSL2), Ryzen 7 9800X3D.
+Wall clock from `/usr/bin/time`, mean ± sample standard deviation, zero Phase 2
+fallbacks throughout, prime counting on (the default). Flags:
+`--seg-size=200000000 --p-small=1000000 --batch-size=2000000`. The full method,
+including the interleaved comparison with v2.0.2, is in
+[RESULTS.md](RESULTS.md).
 
-| Limit | Computation | Wall clock | Runs |
-|---|---|---|---|
-| 10<sup>10</sup> | 0.0755 ± 0.0007 s | 0.540 ± 0.017 s | 5 |
-| 10<sup>11</sup> | 0.698 ± 0.003 s | 1.162 ± 0.028 s | 5 |
-| 10<sup>12</sup> | 7.386 ± 0.032 s | 7.858 ± 0.075 s | 5 |
-| 10<sup>13</sup> | 78.686 ± 0.029 s | 79.140 ± 0.032 s | 6 |
-| 10<sup>14</sup> | 835.66 s | 836.13 s | 1 |
+| Limit | v3.2.0 wall clock | Runs | v2.0.2 wall clock | Speedup (variable cost) |
+|---|---|---|---|---|
+| 10<sup>11</sup> | 1.160 ± 0.007 s | 5 | 11.348 ± 0.018 s | 15.97× |
+| 10<sup>12</sup> | 7.978 ± 0.052 s | 5 | 143.890 ± 0.662 s | 19.13× |
+| 10<sup>13</sup> | 79.523 ± 0.067 s | 3 | 3,204.710 ± 4.523 s | 40.54× |
+| 10<sup>14</sup> | 857 s | 1 | not run | |
 
-At 10<sup>14</sup> this is **1.13× faster than v3.0.0**, whose tag run took
-942.3 s wall against 836.13 s here; the gain is the `TILE_ODDS` change described
-under Tuning.
+The v2.0.2 and v3.2.0 rows at each limit were run interleaved in one session.
+Speedup is the ratio of variable costs, that is of mean wall clock at the limit
+minus mean wall clock at 10<sup>6</sup> of the same build (0.488 s for v2.0.2,
+0.480 s for v3.2.0), which removes the fixed startup. The 10<sup>14</sup> row is
+a single run made with `--record-check`. Results for v3.1.0 are in RESULTS.md,
+section 3.
 
-Every row is a plain verification run: no `--record-check`, no profiler, and no
-prime counting. Counting became the default later, in v3.2.0, and adds 0.2% at
-10<sup>12</sup> and 0.4% at 10<sup>13</sup>; `--no-count-primes` reproduces these
-timings. At
-10<sup>10</sup> the computation is only 0.0755 s against 0.540 s wall clock, so
-most of the wall time is fixed startup. That row should not be read as a
-throughput figure.
+Absolute times on this machine moved by about 2% between sessions, with both
+builds moving together, so ratios are quoted only within a session.
 
-Scaling stays close to linear across the ladder. On computation the decade
-ratios are 9.25×, 10.58×, 10.65× and 10.62× from 10<sup>10</sup> to
-10<sup>14</sup>. Normalised per segment the cost is 2.79, 2.95, 3.15 and 3.34 ms
-at 10<sup>11</sup> through 10<sup>14</sup>: a 6.2% rise over the final decade and
-19.7% over the three, not a regime change.
+Mean wall clock grows by a factor of 9.97 from 10<sup>12</sup> to 10<sup>13</sup>
+for v3.2.0, against 22.27 for v2.0.2. Part of the growth is the sieving prime
+count: above 10<sup>12</sup> the sieve bound √N overtakes `--p-small`, and the run
+at 10<sup>14</sup> reports 664,579 sieving primes (`small_prime_count`).
+Phase 1 is unaffected, since its prime list stays capped at `--p-small`, which is
+78,498 primes.
 
-There is a real effect underneath: above 10<sup>12</sup> the sieve bound √N
-overtakes `--p-small`, so the number of sieving primes grows, from 78,498 at
-10<sup>11</sup> to 227,647 at 10<sup>13</sup> and 664,579 at 10<sup>14</sup>
-(reported by the runs themselves as `small_prime_count`). Phase 1 is unaffected,
-since its prime list stays capped at `--p-small` at 78,498 throughout. The sieve
-is absorbing that growth well so far, but it is the term that will dominate first
-at larger limits.
+### Windows at 4·10<sup>18</sup>
+
+`--start=4000000000000000000 --window-max`, with N = 4·10<sup>18</sup> + W. Every
+even number in the closed interval [4·10<sup>18</sup>, N] is checked, and the
+count is of primes q with 4·10<sup>18</sup> < q ≤ N. Each window was run twice
+with different segment and prime-bound parameters (runs A and B, listed in
+RESULTS.md, section 2.3); the two runs agree exactly, and the prime count equals
+the difference of primecount 8.8 values.
+
+| W | Numbers checked | Primes in (4·10<sup>18</sup>, N] | Window maximum p<sub>min</sub> at n | Wall clock A / B |
+|---|---|---|---|---|
+| 10<sup>12</sup> | 500,000,000,001 | 23,346,564,662 | 6,073 at 4,000,000,402,622,391,632 | 13.54 s / 12.64 s |
+| 10<sup>13</sup> | 5,000,000,000,001 | 233,465,239,142 | 6,421 at 4,000,005,756,560,737,472 | 113.05 s / 106.39 s |
+| 10<sup>14</sup> | 50,000,000,000,001 | 2,334,657,870,388 | 7,103 at 4,000,048,374,322,888,936 | 1,110.87 s / 1,044.38 s |
+| 10<sup>15</sup> | 500,000,000,000,001 | 23,346,512,560,823 | 7,487 at 4,000,400,837,678,526,154 | 11,125.3 s / 10,404.2 s |
+
+All eight runs report 0 Phase 2 fallbacks. The 10<sup>15</sup> runs took 3.09 h and
+2.89 h. During them the GPU sat at a median SM clock of 2,760 MHz with no throttle
+reason active in any of 359 samples. The window maximum is the largest
+p<sub>min</sub> over the window and is not a p-record. These runs cover windows
+that start at 4·10<sup>18</sup>; they make no claim about the range between
+10<sup>14</sup> and 4·10<sup>18</sup>.
 
 ### Multiple GPUs
 
@@ -168,8 +188,8 @@ A representative invocation:
 For each even *n*, the program searches small primes *p* in ascending order for
 one where *n − p* is also prime. Almost every even number has such a partition
 with a very small *p*: the largest minimal prime below 10<sup>14</sup> is 4909,
-at *n* = 76903574497118, found by the `--record-check` run and matching the
-published record table. That is a factor of 200 below the 10<sup>6</sup> search
+at *n* = 76903574497118, found by the `--record-check` run of RESULTS.md,
+section 2.2. That is a factor of 200 below the 10<sup>6</sup> search
 bound, which is why the CPU fallback is never reached.
 
 The range is processed in segments. For each segment the GPU builds a bitset of
@@ -254,13 +274,16 @@ or individually:
 
 The `--record-check` flag extends this to a live run. It reports each new maximum
 minimal prime as it is found; a separate 10<sup>14</sup> run with the flag set
-emitted 22 such records, all matching the published table, six of them above
-10<sup>13</sup> where the CPU-side test does not reach. At v3.0.0 the flag cost
-26.6% at 10<sup>14</sup>, and at v3.2.0 as first written 36% at 10<sup>12</sup>:
-every GPU thread ended with an atomic maximum on one address. Skipping the
-atomic when it cannot raise the stored value brings `--record-check` and
-`--window-max` to 2.2% at 10<sup>12</sup> (7.53 s against 7.37 s, five runs
-each). Both are off by default, and the timings above are measured without them.
+emitted 22 such records. The 16 below 10<sup>13</sup> form a subsequence of the
+published table; the six above 10<sup>13</sup>, where the CPU-side test does not
+reach, were not compared with a table (RESULTS.md, section 2.2). At v3.0.0 the flag
+cost 26.6% at 10<sup>14</sup>, and at v3.2.0 as first written 36% at
+10<sup>12</sup>: every GPU thread ended with an atomic maximum on one address.
+Skipping the atomic when it cannot raise the stored value brings `--record-check`
+and `--window-max` to 2.2% at 10<sup>12</sup> (7.53 s against 7.37 s, five runs
+each). Both are off by default, and the timings above are measured without them,
+except the 10<sup>14</sup> run of the Results section, which used
+`--record-check`.
 
 The flag reports at most one record per segment, so its output is a
 subsequence of the true records. Numbers resolved by the CPU fallback contribute
@@ -435,6 +458,18 @@ on GPUs. https://arxiv.org/abs/2603.02621
 Their performance figures describe that implementation and are not comparable 
 to those on this page, which come from the current release. 
 A manuscript describing the current release is in preparation.
+
+### Versions
+
+| Version | Scope | DOI |
+|---|---|---|
+| v2.0.2 | The v2.0.0 architecture of arXiv:2603.07850 with two concurrency defects in the sieve corrected and `--seg-size` bounded; a reference artifact for the corrected figures. | to be added |
+| v3.0.0 | Byte-wide sieve marking, transposed Phase 1, large-prime kernel, bitset verification state, `--record-check`, and tests of the sieve, Phase 1, primality and bitset construction. | to be added |
+| v3.1.0 | `TILE_ODDS` 16384; `big_check` reports the minimal p, with expression input and distinct exit statuses; tests registered with CTest. | to be added |
+| v3.2.0 | Prime counting by default, `--window-max` and verification windows at any `--start`, folded prime count, faster p<sub>min</sub> tracking, Baillie–PSW as specified by Baillie, Fiori and Wagstaff, fail-closed segment accounting, stricter input validation, and an extended test suite. | to be added |
+
+The DOI of each release is on the Zenodo record linked above. Details of each
+version are in [CHANGELOG.md](CHANGELOG.md).
 
 ---
 
