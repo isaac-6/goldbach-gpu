@@ -1,4 +1,4 @@
-## [3.2.0] - YYYY-MM-DD
+## [3.2.0] - 2026-09-30
 
 ### Added
 - **Window mode.** `--window-max` prints the largest p_min over [START, N] and
@@ -121,7 +121,7 @@
 - `tests/validation.sh` and `tests/validation_gpu.sh`, which checked outputs
   that no longer exist. `test_cli` covers their cases.
 
-## [3.1.0] - 2026-10-26
+## [3.1.0] - 2026-09-26
 
 ### Changed
 - **`TILE_ODDS` default 32768 to 16384.** 13-14% faster at 10^11, 10^12 and
