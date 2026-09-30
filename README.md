@@ -466,7 +466,7 @@ A manuscript describing the current release is in preparation.
 | v2.0.2 | 2026-09-18 | The v2.0.0 architecture of arXiv:2603.07850 with two concurrency defects in the sieve corrected and `--seg-size` bounded; a reference artifact for the corrected figures. | [10.5281/zenodo.22831383](https://doi.org/10.5281/zenodo.22831383) |
 | v3.0.0 | 2026-09-09 | Byte-wide sieve marking, transposed Phase 1, large-prime kernel, bitset verification state, `--record-check`, and tests of the sieve, Phase 1, primality and bitset construction. | [10.5281/zenodo.22678175](https://doi.org/10.5281/zenodo.22678175) |
 | v3.1.0 | 2026-09-26 | `TILE_ODDS` 16384; `big_check` reports the minimal p, with expression input and distinct exit statuses; tests registered with CTest. | [10.5281/zenodo.22980241](https://doi.org/10.5281/zenodo.22980241) |
-| v3.2.0 | 2026-09-30 | Prime counting by default, `--window-max` and verification windows at any `--start`, folded prime count, faster p<sub>min</sub> tracking, Baillie–PSW as specified by Baillie, Fiori and Wagstaff, fail-closed segment accounting, stricter input validation, and an extended test suite. | assigned at release |
+| v3.2.0 | 2026-09-30 | Prime counting by default, `--window-max` and verification windows at any `--start`, folded prime count, faster p<sub>min</sub> tracking, Baillie–PSW as specified by Baillie, Fiori and Wagstaff, fail-closed segment accounting, stricter input validation, and an extended test suite. | [10.5281/zenodo.23065321](https://doi.org/10.5281/zenodo.23065321) |
 
 The concept DOI [10.5281/zenodo.18786328](https://doi.org/10.5281/zenodo.18786328)
 resolves to the latest version; each release also has its own DOI, listed
