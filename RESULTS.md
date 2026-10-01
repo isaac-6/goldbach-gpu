@@ -53,6 +53,9 @@ throttle reason.
 
 ## 2. Range verification at v3.2.0
 
+The logs, scripts and summary tables behind this section are archived as a
+separate dataset at DOI [10.5281/zenodo.23090649](https://doi.org/10.5281/zenodo.23090649).
+
 ### 2.1 Comparison with v2.0.2
 
 The v2.0.2 tag (a corrected release of the v2.0.0 architecture) and the v3.2.0

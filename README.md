@@ -29,6 +29,9 @@ hardware an individual can own, in minutes rather than machine-years.
 
 ## Results
 
+The logs, scripts and summary tables behind these results are archived as a
+separate dataset at DOI [10.5281/zenodo.23090649](https://doi.org/10.5281/zenodo.23090649).
+
 ### Single GPU
 
 v3.2.0, RTX 5090 (driver 610.88), CUDA 13.3, Ubuntu 26.04 (WSL2), Ryzen 7 9800X3D.
@@ -471,6 +474,11 @@ A manuscript describing the current release is in preparation.
 The concept DOI [10.5281/zenodo.18786328](https://doi.org/10.5281/zenodo.18786328)
 resolves to the latest version; each release also has its own DOI, listed
 above. Details of each version are in [CHANGELOG.md](CHANGELOG.md).
+
+The supporting logs for v3.2.0 are a separate dataset (archive
+`goldbachgpu-v3.2.0-logs.tar.gz`, licence CC-BY-4.0, a supplement to the v3.2.0
+release), with its own DOI [10.5281/zenodo.23090649](https://doi.org/10.5281/zenodo.23090649).
+It is not a version of the software.
 
 ---
 
