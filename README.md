@@ -1,6 +1,5 @@
 [![DOI](https://zenodo.org/badge/1162873542.svg)](https://doi.org/10.5281/zenodo.18786328)
-[![arXiv](https://img.shields.io/badge/arXiv-2603.07850_(RangeVerification)-b31b1b.svg)](https://arxiv.org/abs/2603.07850)
-[![arXiv](https://img.shields.io/badge/arXiv-2603.02621_(BigCheck)-b31b1b.svg)](https://arxiv.org/abs/2603.02621)
+[![Paper](https://img.shields.io/badge/Paper-10.5281%2Fzenodo.23346739-blue.svg)](https://doi.org/10.5281/zenodo.23346739)
 
 [![Release](https://img.shields.io/github/v/release/isaac-6/goldbach-gpu)](https://github.com/isaac-6/goldbach-gpu/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
@@ -441,7 +440,16 @@ https://doi.org/10.5281/zenodo.18786328
 This DOI resolves to the latest version. The DOI of each release is listed
 on the Zenodo record.
 
-If you reference the scientific description of the range verification
+If you reference the current release (v3.2.0), its verification method or the
+windows above 4·10^18, please cite:
+
+```
+Llorente-Saguer, I. (2026). Fail-Closed GPU Verification of the Even Goldbach
+Conjecture beyond 4·10^18: Method and Evidence. Preprint.
+https://doi.org/10.5281/zenodo.23346739
+```
+
+If you reference the earlier v2.0.0 architecture of the range verifier
 (`goldbach`), please cite:
 
 ```
@@ -457,10 +465,10 @@ Llorente-Saguer, I. (2026). GoldbachGPU: High-performance Goldbach verification
 on GPUs. https://arxiv.org/abs/2603.02621
 ```
 
-**Note on versions.** The preprints above describe release v2.0.0. 
-Their performance figures describe that implementation and are not comparable 
-to those on this page, which come from the current release. 
-A manuscript describing the current release is in preparation.
+**Note on versions.** The two arXiv preprints describe release v2.0.0. Their
+performance figures describe that implementation and are not comparable to
+those on this page, which come from the current release. The current release
+is described in the 2026 preprint above.
 
 ### Versions
 

@@ -23,3 +23,14 @@ keywords:
   - "gpu-computing"
   - "cuda"
   - "gmp"
+
+references:
+  - type: article
+    title: "Fail-Closed GPU Verification of the Even Goldbach Conjecture beyond 4·10^18: Method and Evidence"
+    authors:
+      - family-names: "Llorente-Saguer"
+        given-names: "Isaac"
+        orcid: "https://orcid.org/0000-0002-7612-5331"
+    year: 2026
+    doi: "10.5281/zenodo.23346739"
+    notes: "Preprint"
